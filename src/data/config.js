@@ -27,6 +27,23 @@ export const config = Object.freeze({
     // Curviness of the procedurally generated road centerline.
     curveAmplitude: 70, // max horizontal offset of centerline, virtual px
     curveFrequency: 0.0016, // spatial frequency of the curve sine, per px
+    // AIDEV-NOTE: road body width oscillates between these bounds (must leave
+    // room for two shoulders inside VIRTUAL_WIDTH: minWidth/2 + shoulderWidth
+    // plus the max curve offset must fit). 70 (curve) + 180 (half of 360) + 56
+    // (shoulder) = 306 <= 270? No — so the road sampler clamps the centerX so
+    // the road+shoulders always fit; see systems/road.js.
+    minWidth: 240, // narrowest road body, virtual px
+    maxWidth: 360, // widest road body, virtual px
+    widthFrequency: 0.0009, // spatial frequency of the width sine, per px
+    // Sectors are fixed-length distance bands; the sector counter advances by
+    // one each time the player travels this far.
+    sectorLength: 4000, // virtual px per sector
+    // Water sections: deterministic stretches of water (boat mode in a later
+    // phase). Each "cell" of waterPeriod px has a contiguous water stretch of
+    // waterLength px near its end if the seeded roll for that cell passes.
+    waterPeriod: 16000, // px between potential water windows
+    waterLength: 2600, // px length of a water stretch when present
+    waterChance: 0.6, // probability a given period contains water
   }),
 
   // --- Player car ---

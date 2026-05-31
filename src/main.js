@@ -13,8 +13,8 @@ import { GameCanvas } from "./engine/canvas.js";
 import { Input } from "./engine/input.js";
 import { Loop } from "./engine/loop.js";
 import { World } from "./core/world.js";
+import { Renderer } from "./render/renderer.js";
 import { config } from "./data/config.js";
-import { palette } from "./data/palette.js";
 
 function boot() {
   const canvasEl = /** @type {HTMLCanvasElement|null} */ (
@@ -33,26 +33,21 @@ function boot() {
   // Deterministic-but-varied seed: time-derived so each session differs, while
   // tests can still construct World with an explicit seed.
   const world = new World({ seed: (Date.now() & 0x7fffffff) || 1 });
+  const renderer = new Renderer(gameCanvas);
 
   const loop = new Loop({
     step: config.FIXED_STEP,
     maxFrameTime: config.MAX_FRAME_TIME,
     update: (dt) => {
-      // Phase 0: advance the stub world. Input snapshot is read here so wiring
-      // is exercised even though the world doesn't consume it yet.
+      // Input snapshot is read here so wiring is exercised even though the
+      // world doesn't consume it yet (player driving arrives in Phase 2).
       input.snapshot();
       input.consumePressed();
       world.update(dt);
     },
     render: (_alpha) => {
-      // Clear the whole backing store (letterbox bars included) to background.
-      gameCanvas.clear(palette.background);
-      // Establish the virtual coordinate system for any world drawing.
-      gameCanvas.applyTransform();
-      // Phase 0 renderer: just paint the play field so the letterbox is visible.
-      const { ctx } = gameCanvas;
-      ctx.fillStyle = palette.road;
-      ctx.fillRect(0, 0, world.width, world.height);
+      // Phase 1 renderer: draw the scrolling procedural road.
+      renderer.render(world);
     },
   });
 
@@ -60,7 +55,7 @@ function boot() {
 
   // Expose for debugging in the console; harmless in production.
   // @ts-ignore
-  window.__spychaser = { world, loop, input, gameCanvas };
+  window.__spychaser = { world, loop, input, gameCanvas, renderer };
 }
 
 if (typeof document !== "undefined") {
