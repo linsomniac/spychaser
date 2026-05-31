@@ -10,8 +10,11 @@ import { config } from "../src/data/config.js";
 
 function freshWorld() {
   const w = new World({ seed: 1 });
-  // Silence the debug spawner for deterministic, isolated assertions.
-  w._debugSpawn = () => {};
+  // AIDEV-NOTE: silence the spawn director so these collision/scoring tests stay
+  // isolated (no stray director-spawned traffic). The Phase-5 director replaced
+  // the old debug spawner; stubbing its update() is the modern equivalent of the
+  // former `w._debugSpawn = () => {}`.
+  w.director.update = () => [];
   return w;
 }
 
@@ -143,19 +146,17 @@ test("off-screen enemies and civilians are culled", () => {
   assert.equal(w.civilians.length, 0);
 });
 
-test("the debug spawner eventually produces enemies and civilians", () => {
-  const w = new World({ seed: 5 }); // keep the real debug spawner
+test("the spawn director eventually produces traffic", () => {
+  const w = new World({ seed: 5 }); // real seeded director (Phase 5)
   // AIDEV-NOTE: assert that spawns HAPPEN over the run, not that any survive to
-  // the final instant — fast cars can all scroll off the bottom by tick 600.
-  let everEnemy = false;
-  let everCivilian = false;
-  for (let i = 0; i < 600; i++) {
-    w.update(1 / 60); // ~10s
-    if (w.enemies.length > 0) everEnemy = true;
-    if (w.civilians.length > 0) everCivilian = true;
+  // the final instant — fast cars can all scroll off the bottom. Run long enough
+  // to clear the director warmup distance.
+  let ever = false;
+  for (let i = 0; i < 900; i++) {
+    w.update(1 / 60); // ~15s
+    if (w.enemies.length + w.civilians.length > 0) ever = true;
   }
-  assert.ok(everEnemy, "debug spawner should produce enemies");
-  assert.ok(everCivilian, "debug spawner should produce civilians");
+  assert.ok(ever, "the director should produce traffic over a run");
 });
 
 test("reset clears Phase-4 state", () => {

@@ -211,14 +211,51 @@ export const config = Object.freeze({
     capacity: 16,
   }),
 
-  // --- Spawn director ---
+  // --- Spawn director (Phase 5) ---
+  // AIDEV-NOTE: The director schedules escalating traffic + milestone set-pieces,
+  // all driven by the seeded world RNG so a seed reproduces the whole schedule.
+  // Spawn cadence shrinks (gets denser) as scroll `distance` ramps from 0 toward
+  // rampDistance. See systems/director.js.
   director: Object.freeze({
+    // Retained from Phase 4 (debug spawner is gone, but other code may read it).
     initialSpawnInterval: 1.6, // seconds between spawns at start
-    minSpawnInterval: 0.45, // floor as difficulty ramps
-    rampDuration: 120, // seconds to ramp from initial -> min interval
-    maxConcurrent: 8, // cap on simultaneous live enemies
-    heavyChanceStart: 0.05,
-    heavyChanceMax: 0.35,
+
+    // Cadence: seconds between spawn DECISIONS. Lerps from maxInterval (distance
+    // 0) toward minInterval (at/after rampDistance) — difficulty escalation.
+    maxInterval: 2.4, // slowest cadence, at the start of a run
+    minInterval: 0.65, // fastest cadence, deep into a run
+    rampDistance: 60000, // virtual px over which cadence ramps max -> min
+    warmupDistance: 700, // no enemies until the player has driven this far
+
+    // Per spawn decision: probability the vehicle is a civilian (vs an enemy).
+    // Civilian share shrinks with distance (more enemies later in the run).
+    civilianChanceStart: 0.45,
+    civilianChanceEnd: 0.22,
+
+    // Tougher enemy types unlock by distance. `count` indexes the director's
+    // easiest-first PICK_ORDER (switchblade, roadLord, barrelDumper, enforcer);
+    // see systems/director.js. Each stage gives how many leading types may spawn.
+    enemyUnlock: [
+      { distance: 0, count: 1 }, // Switchblade only
+      { distance: 5000, count: 2 }, // + Road Lord
+      { distance: 14000, count: 3 }, // + Barrel Dumper
+      { distance: 26000, count: 4 }, // + Enforcer (hardest)
+    ],
+
+    // Lateral spawn spread as a fraction of the road half-width around center.
+    laneSpread: 0.62,
+
+    // Set-pieces fire at distance milestones, each on its own spacing so they
+    // don't all stack. firstAt = first trigger distance; spacing = distance
+    // between repeats; jitter = seeded +/- distance wobble. Names are consumed by
+    // later phases (van/heli/water/weather).
+    setpieces: Object.freeze({
+      weaponsVan: Object.freeze({ firstAt: 3000, spacing: 9000, jitter: 1200 }),
+      enemyWave: Object.freeze({ firstAt: 6000, spacing: 11000, jitter: 1500 }),
+      water: Object.freeze({ firstAt: 15000, spacing: 26000, jitter: 2000 }),
+      weather: Object.freeze({ firstAt: 9000, spacing: 18000, jitter: 2000 }),
+      helicopter: Object.freeze({ firstAt: 20000, spacing: 22000, jitter: 2500 }),
+    }),
   }),
 
   // --- Scoring ---
