@@ -39,9 +39,9 @@ function boot() {
     step: config.FIXED_STEP,
     maxFrameTime: config.MAX_FRAME_TIME,
     update: (dt) => {
-      // Input snapshot is read here so wiring is exercised even though the
-      // world doesn't consume it yet (player driving arrives in Phase 2).
-      input.snapshot();
+      // Feed the held-action snapshot to the world so the player can drive,
+      // then drain the edge buffer (one-shot presses are used in later phases).
+      world.setInput(input.snapshot());
       input.consumePressed();
       world.update(dt);
     },

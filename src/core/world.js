@@ -12,6 +12,7 @@
 import { createRng } from "../engine/rng.js";
 import { config } from "../data/config.js";
 import { Road } from "../systems/road.js";
+import { Player } from "../entities/player.js";
 
 /**
  * @typedef {Object} WorldOptions
@@ -54,8 +55,32 @@ export class World {
      */
     this.road = new Road({ seed: this._roadSeed(this._seed), config: this.config });
 
+    /**
+     * The player's interceptor. The world feeds it the input snapshot each tick
+     * and reads back its forward speed to drive the road scroll.
+     * @type {Player}
+     */
+    this.player = new Player({ config: this.config });
+
+    /**
+     * Held-action snapshot for the current tick, set by setInput() before
+     * update(). Defaults to no input so headless ticks are well-defined.
+     * @type {import("../entities/player.js").PlayerInput}
+     */
+    this.input = {};
+
     /** simple lifecycle flag; later phases add menu/playing/gameover */
     this.state = "playing";
+  }
+
+  /**
+   * Provide the held-action snapshot for the next update() tick. The bootstrap
+   * (main.js) calls this each frame from engine/input.js; tests can call it to
+   * script a deterministic input sequence.
+   * @param {import("../entities/player.js").PlayerInput} input
+   */
+  setInput(input) {
+    this.input = input ?? {};
   }
 
   /**
@@ -79,7 +104,16 @@ export class World {
     if (this.state !== "playing") return;
     this.time += dt;
     this.ticks += 1;
-    // Scroll advances by the current speed (defaults to base scroll speed).
+
+    // Drive the player from this tick's input, sampling the road at the car's
+    // own row so its off-road/crash checks line up with what is rendered there.
+    const playerDistance = this.distance + (this.height - this.player.y);
+    this.player.update(dt, this.input, this.road, playerDistance);
+
+    // AIDEV-NOTE: the world scrolls at a base speed plus the player's throttle
+    // contribution. Even at zero throttle the road creeps forward so the chase
+    // never fully stops; the player's speed adds on top of that base.
+    this.speed = this.config.road.baseScrollSpeed + Math.max(0, this.player.speed);
     this.distance += this.speed * dt;
   }
 
@@ -112,6 +146,8 @@ export class World {
     this.ticks = 0;
     this.distance = 0;
     this.speed = this.config.road.baseScrollSpeed;
+    this.input = {};
+    this.player.reset();
     this.state = "playing";
   }
 }

@@ -60,6 +60,24 @@ export const config = Object.freeze({
     // Lower = slidier. See traction module (later phase).
     grip: 8.0,
     fireCooldown: 0.16, // seconds between primary shots
+    // Coasting (no accel/brake) bleeds speed toward zero at this rate so the
+    // car settles instead of drifting forever. Virtual px/s^2.
+    coastDecel: 320,
+    // --- Vertical screen position ---
+    // The car sits low on the screen; accelerating nudges it up, braking pulls
+    // it back down. These are fractions of VIRTUAL_HEIGHT (0 = top, 1 = bottom).
+    restY: 0.78, // resting vertical position (idle speed)
+    minY: 0.55, // highest the car climbs at full throttle
+    maxY: 0.86, // lowest it falls to while braking
+    yLerp: 3.0, // how fast the car eases toward its target y (per second)
+    // --- Off-road shoulder penalty (spec §6: slow + damage) ---
+    // AIDEV-NOTE: on the grass verge the car is capped to this speed and takes
+    // damage over time; running entirely off the play field is a crash. These
+    // drive entities/player.js surface handling and its tests.
+    offRoadMaxSpeed: 150, // hard speed cap while on a shoulder, virtual px/s
+    offRoadDrag: 900, // extra deceleration applied above the cap, px/s^2
+    offRoadDamagePerSec: 18, // damage accrued per second on the shoulder
+    maxDamage: 100, // damage at which the car is wrecked
   }),
 
   // --- Weapons ---

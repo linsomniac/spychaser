@@ -53,6 +53,24 @@ export class Renderer {
     this.gameCanvas.clear(palette.background);
     this.gameCanvas.applyTransform();
     this.drawRoad(world);
+    this.drawEntities(world);
+  }
+
+  /**
+   * Draw the world's entities. For Phase 2 that is just the player car; later
+   * phases collect enemies/civilians/projectiles here and draw them sorted by Y
+   * (painter's order) so closer vehicles overlap farther ones.
+   *
+   * AIDEV-NOTE: Y-sort hook — push more drawables into `drawables`, sort by `y`,
+   * then paint. Keep the player in this list so it sorts naturally with traffic.
+   * @param {import("../core/world.js").World} world
+   */
+  drawEntities(world) {
+    const drawables = [world.player];
+    drawables.sort((a, b) => a.y - b.y);
+    for (const ent of drawables) {
+      if (ent && typeof ent.draw === "function") ent.draw(this.ctx);
+    }
   }
 
   /**
