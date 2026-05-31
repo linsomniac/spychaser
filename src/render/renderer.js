@@ -53,7 +53,24 @@ export class Renderer {
     this.gameCanvas.clear(palette.background);
     this.gameCanvas.applyTransform();
     this.drawRoad(world);
+    // Bullets paint under the vehicles; particles (muzzle/hit sparks) on top.
+    if (world.projectiles) this.drawBullets(world.projectiles);
     this.drawEntities(world);
+    if (world.particles) world.particles.draw(this.ctx);
+  }
+
+  /**
+   * Draw the live machine-gun bullets. Each bullet carries a CENTER (x, y); we
+   * paint a small bright slug in the bullet palette color. The pool's forEach is
+   * allocation-free.
+   * @param {import("../entities/projectiles.js").Projectiles} projectiles
+   */
+  drawBullets(projectiles) {
+    const { ctx } = this;
+    ctx.fillStyle = palette.bullet;
+    projectiles.forEach((b) => {
+      ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
+    });
   }
 
   /**

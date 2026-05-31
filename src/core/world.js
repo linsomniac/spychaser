@@ -6,13 +6,17 @@
 // renderer reads from the world but never mutates it.
 //
 // AIDEV-NOTE: Grown from the Phase 0 stub. Holds the deterministic sim state
-// (seeded RNG, tick/time counters, scroll distance) plus the procedural Road.
-// Later phases (player, enemies, weapons, director, scoring) flesh it out.
+// (seeded RNG, tick/time counters, scroll distance) plus the procedural Road,
+// the Player, and (Phase 3) the machine gun, pooled projectiles, and particle
+// effects. Later phases (enemies, director, scoring) flesh it out.
 
 import { createRng } from "../engine/rng.js";
 import { config } from "../data/config.js";
 import { Road } from "../systems/road.js";
 import { Player } from "../entities/player.js";
+import { Projectiles } from "../entities/projectiles.js";
+import { MachineGun, fireMachineGun } from "../systems/weapons.js";
+import { ParticleSystem } from "../render/effects.js";
 
 /**
  * @typedef {Object} WorldOptions
@@ -61,6 +65,22 @@ export class World {
      * @type {Player}
      */
     this.player = new Player({ config: this.config });
+
+    /**
+     * Machine gun + pooled bullets (Phase 3). The gun owns the autofire cadence;
+     * the projectile pool owns bullet lifetimes. They are decoupled so the
+     * cadence logic stays unit-testable without the pool.
+     * @type {MachineGun}
+     */
+    this.gun = new MachineGun();
+    /** @type {Projectiles} */
+    this.projectiles = new Projectiles();
+    /**
+     * Pooled particle effects (muzzle flashes, hit sparks). Bursts pull from the
+     * world RNG so a seed + input sequence reproduces the visuals exactly.
+     * @type {ParticleSystem}
+     */
+    this.particles = new ParticleSystem();
 
     /**
      * Held-action snapshot for the current tick, set by setInput() before
@@ -115,6 +135,23 @@ export class World {
     // never fully stops; the player's speed adds on top of that base.
     this.speed = this.config.road.baseScrollSpeed + Math.max(0, this.player.speed);
     this.distance += this.speed * dt;
+
+    // --- Weapons: machine gun autofire (hold Space => input.fire). ---
+    // The player must be alive to shoot; a crashed car holds its fire.
+    const firing = !this.player.crashed && !!this.input.fire;
+    const muzzle = fireMachineGun(this.gun, dt, firing, this.player, this.projectiles);
+    if (muzzle.spawned > 0) {
+      this.particles.muzzleBurst(muzzle.x, muzzle.y, this.rng);
+    }
+
+    // --- Projectiles & particles. ---
+    this.projectiles.update(dt);
+    this.particles.update(dt);
+
+    // AIDEV-NOTE: bullet<->enemy/civilian collision is wired in Phase 4 once
+    // those entity groups exist; systems/collision.js is already in place and
+    // unit-tested. Hook it in here: collidePairs(this.projectiles.toArray(),
+    // enemies, onHit) then spawn a hitSpark + kill the bullet on impact.
   }
 
   /**
@@ -148,6 +185,9 @@ export class World {
     this.speed = this.config.road.baseScrollSpeed;
     this.input = {};
     this.player.reset();
+    this.gun = new MachineGun();
+    this.projectiles.clear();
+    this.particles.clear();
     this.state = "playing";
   }
 }
