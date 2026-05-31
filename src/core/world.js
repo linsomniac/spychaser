@@ -17,9 +17,10 @@ import { Player } from "../entities/player.js";
 import { Projectiles } from "../entities/projectiles.js";
 import { MachineGun, fireMachineGun } from "../systems/weapons.js";
 import { ParticleSystem } from "../render/effects.js";
-import { createEnemy, ENEMY_TYPES } from "../entities/enemies.js";
+import { createEnemy } from "../entities/enemies.js";
 import { Civilian } from "../entities/civilian.js";
 import { collidePairs } from "../systems/collision.js";
+import { Director } from "../systems/director.js";
 
 /**
  * @typedef {Object} WorldOptions
@@ -106,12 +107,27 @@ export class World {
     /** Count of civilians destroyed this run (penalty marker for Phase 10). */
     this.civilianHits = 0;
 
-    // AIDEV-TODO(P5): TEMPORARY debug spawner timers. Replaced by systems/
-    // director.js in Phase 5. They exist only to exercise every enemy behavior +
-    // civilians in-browser during Phase 4.
-    this._dbgEnemyTimer = config.director.initialSpawnInterval;
-    this._dbgCivilianTimer = 2.0;
-    this._dbgEnemyIdx = 0;
+    /**
+     * Seeded spawn director (Phase 5). Replaces the Phase-4 debug spawner. It
+     * schedules escalating enemy/civilian traffic and milestone set-pieces; it
+     * shares the world RNG (passed in update's context) so the entire run —
+     * road + spawns + set-pieces — is reproducible from a single seed.
+     * @type {Director}
+     */
+    this.director = new Director({ config: this.config });
+    /**
+     * Set-piece triggers fired by the director, drained by higher-level systems
+     * in later phases (weapons van, helicopter, water, weather). Each entry is
+     * { name, distance }.
+     * @type {Array<{name:string, distance:number}>}
+     */
+    this.setpieces = [];
+    /**
+     * Optional hook invoked once per set-piece trigger: onSetpiece(trigger, world).
+     * Later phases attach to this; null by default.
+     * @type {((t:{name:string,distance:number}, world:World)=>void)|null}
+     */
+    this.onSetpiece = null;
 
     /**
      * Held-action snapshot for the current tick, set by setInput() before
@@ -175,8 +191,16 @@ export class World {
       this.particles.muzzleBurst(muzzle.x, muzzle.y, this.rng);
     }
 
-    // --- Spawning (TEMPORARY debug director; replaced in Phase 5). ---
-    this._debugSpawn(dt);
+    // --- Spawning: the seeded director (Phase 5) replaces the debug spawner. ---
+    // It returns events; _realizeSpawn turns them into enemies/civilians and
+    // queued set-piece triggers. The world RNG is shared so runs are seed-exact.
+    const spawnEvents = this.director.update(dt, {
+      distance: this.distance,
+      speed: this.speed,
+      road: this.road,
+      rng: this.rng,
+    });
+    for (const ev of spawnEvents) this._realizeSpawn(ev);
 
     // --- Enemies: behavior + realize their attack events. ---
     for (const e of this.enemies) {
@@ -296,32 +320,25 @@ export class World {
   }
 
   /**
-   * AIDEV-TODO(P5): TEMPORARY debug spawner. Cycles through every enemy type and
-   * drops civilians so all Phase-4 behaviors can be observed in-browser. Replaced
-   * by systems/director.js in Phase 5. Spawns within the road body at the top.
-   * @param {number} dt
+   * Realize one director event into the world: spawn an enemy/civilian into its
+   * live array, or queue a set-piece trigger (consumed by later-phase systems).
+   *
+   * AIDEV-NOTE: kept in the World (not the director) so the director stays pure
+   * logic with no entity/pool dependencies — it only decides WHAT and WHERE; the
+   * world decides HOW to instantiate.
+   * @param {{kind:string, type?:string, x?:number, name?:string}} ev
    * @private
    */
-  _debugSpawn(dt) {
-    const d = this.config.director;
-    const sampleTop = this.road.sampleAt(this.distance + this.height);
-
-    this._dbgEnemyTimer -= dt;
-    if (this._dbgEnemyTimer <= 0) {
-      this._dbgEnemyTimer = d.initialSpawnInterval;
-      const type = ENEMY_TYPES[this._dbgEnemyIdx % ENEMY_TYPES.length];
-      this._dbgEnemyIdx += 1;
-      const half = this.config.enemies[type].width / 2;
-      const x = this.rng.range(sampleTop.leftEdge + half, sampleTop.rightEdge - half);
-      this.enemies.push(createEnemy(type, x, { config: this.config }));
-    }
-
-    this._dbgCivilianTimer -= dt;
-    if (this._dbgCivilianTimer <= 0) {
-      this._dbgCivilianTimer = this.config.civilians.driftInterval + 0.6;
-      const half = this.config.civilians.width / 2;
-      const x = this.rng.range(sampleTop.leftEdge + half, sampleTop.rightEdge - half);
-      this.civilians.push(new Civilian(x, x, { config: this.config }));
+  _realizeSpawn(ev) {
+    if (ev.kind === "enemy") {
+      this.enemies.push(createEnemy(ev.type, ev.x, { config: this.config }));
+    } else if (ev.kind === "civilian") {
+      // Civilian takes (x, targetX); start its drift target at its spawn x.
+      this.civilians.push(new Civilian(ev.x, ev.x, { config: this.config }));
+    } else if (ev.kind === "setpiece") {
+      const trigger = { name: ev.name, distance: this.distance };
+      this.setpieces.push(trigger);
+      if (this.onSetpiece) this.onSetpiece(trigger, this);
     }
   }
 
@@ -364,9 +381,8 @@ export class World {
     this.civilians = [];
     this.score = 0;
     this.civilianHits = 0;
-    this._dbgEnemyTimer = this.config.director.initialSpawnInterval;
-    this._dbgCivilianTimer = 2.0;
-    this._dbgEnemyIdx = 0;
+    this.director.reset();
+    this.setpieces = [];
     this.state = "playing";
   }
 }
