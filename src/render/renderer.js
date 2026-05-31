@@ -55,8 +55,32 @@ export class Renderer {
     this.drawRoad(world);
     // Bullets paint under the vehicles; particles (muzzle/hit sparks) on top.
     if (world.projectiles) this.drawBullets(world.projectiles);
+    if (world.hostiles) this.drawHostiles(world.hostiles);
     this.drawEntities(world);
     if (world.particles) world.particles.draw(this.ctx);
+  }
+
+  /**
+   * Draw hostile projectiles: enemy bullets (orange slugs, travel down) and
+   * rolling barrels (filled circles). (Phase 4.)
+   * @param {import("../entities/projectiles.js").Projectiles} hostiles
+   */
+  drawHostiles(hostiles) {
+    const { ctx } = this;
+    hostiles.forEach((p) => {
+      if (p.category === "barrel") {
+        ctx.fillStyle = palette.barrel;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = palette.barrelRim;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = palette.enemyBullet;
+        ctx.fillRect(p.x - p.w / 2, p.y - p.h / 2, p.w, p.h);
+      }
+    });
   }
 
   /**
@@ -83,7 +107,11 @@ export class Renderer {
    * @param {import("../core/world.js").World} world
    */
   drawEntities(world) {
+    // AIDEV-NOTE: Y-sort all vehicles together so closer cars overlap farther
+    // ones (painter's order). Player + enemies + civilians share the list.
     const drawables = [world.player];
+    if (world.enemies) for (const e of world.enemies) drawables.push(e);
+    if (world.civilians) for (const c of world.civilians) drawables.push(c);
     drawables.sort((a, b) => a.y - b.y);
     for (const ent of drawables) {
       if (ent && typeof ent.draw === "function") ent.draw(this.ctx);

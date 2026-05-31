@@ -194,6 +194,34 @@ export class ParticleSystem {
   }
 
   /**
+   * Explosion burst (Phase 4): a larger, longer-lived omnidirectional spray of
+   * fire + smoke shards for a destroyed enemy. Like hitSpark but bigger; pulls
+   * from the same pooled particles so it stays GC-free and deterministic.
+   * @param {number} x impact center x.
+   * @param {number} y impact center y.
+   * @param {{range:(a:number,b:number)=>number, int:(a:number,b:number)=>number}} rng
+   */
+  explosion(x, y, rng) {
+    const count = rng.int(14, 20);
+    for (let i = 0; i < count; i++) {
+      const ang = rng.range(0, Math.PI * 2);
+      const spd = rng.range(80, 320);
+      // Mix fiery core sparks with darker smoke shards.
+      const color = rng.next() < 0.65 ? palette.explosion : palette.smoke;
+      this.spawn({
+        x: x + rng.range(-4, 4),
+        y: y + rng.range(-4, 4),
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
+        ttl: rng.range(0.3, 0.6),
+        size: rng.range(2, 5),
+        color,
+        drag: 4,
+      });
+    }
+  }
+
+  /**
    * Draw all live particles as fading filled squares. Canvas-only; not tested.
    * @param {CanvasRenderingContext2D} ctx
    */

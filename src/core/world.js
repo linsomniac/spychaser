@@ -17,6 +17,9 @@ import { Player } from "../entities/player.js";
 import { Projectiles } from "../entities/projectiles.js";
 import { MachineGun, fireMachineGun } from "../systems/weapons.js";
 import { ParticleSystem } from "../render/effects.js";
+import { createEnemy, ENEMY_TYPES } from "../entities/enemies.js";
+import { Civilian } from "../entities/civilian.js";
+import { collidePairs } from "../systems/collision.js";
 
 /**
  * @typedef {Object} WorldOptions
@@ -73,14 +76,42 @@ export class World {
      * @type {MachineGun}
      */
     this.gun = new MachineGun();
-    /** @type {Projectiles} */
+    /** @type {Projectiles} player machine-gun rounds. */
     this.projectiles = new Projectiles();
     /**
-     * Pooled particle effects (muzzle flashes, hit sparks). Bursts pull from the
-     * world RNG so a seed + input sequence reproduces the visuals exactly.
+     * Hostile projectiles (Road Lord bullets + Barrel Dumper barrels), kept in a
+     * SEPARATE pool from player bullets so category filtering, rendering and
+     * collision stay clean. (Phase 4.)
+     * @type {Projectiles}
+     */
+    this.hostiles = new Projectiles();
+    /**
+     * Pooled particle effects (muzzle flashes, hit sparks, explosions). Bursts
+     * pull from the world RNG so a seed + input sequence reproduces the visuals.
      * @type {ParticleSystem}
      */
     this.particles = new ParticleSystem();
+
+    /**
+     * Live ground enemies and civilian traffic (Phase 4). Plain arrays; dead /
+     * off-screen entities are filtered out each tick.
+     * @type {import("../entities/enemies.js").Enemy[]}
+     */
+    this.enemies = [];
+    /** @type {import("../entities/civilian.js").Civilian[]} */
+    this.civilians = [];
+
+    /** Running score (full scoring/lives loop lands in Phase 10). */
+    this.score = 0;
+    /** Count of civilians destroyed this run (penalty marker for Phase 10). */
+    this.civilianHits = 0;
+
+    // AIDEV-TODO(P5): TEMPORARY debug spawner timers. Replaced by systems/
+    // director.js in Phase 5. They exist only to exercise every enemy behavior +
+    // civilians in-browser during Phase 4.
+    this._dbgEnemyTimer = config.director.initialSpawnInterval;
+    this._dbgCivilianTimer = 2.0;
+    this._dbgEnemyIdx = 0;
 
     /**
      * Held-action snapshot for the current tick, set by setInput() before
@@ -144,14 +175,154 @@ export class World {
       this.particles.muzzleBurst(muzzle.x, muzzle.y, this.rng);
     }
 
+    // --- Spawning (TEMPORARY debug director; replaced in Phase 5). ---
+    this._debugSpawn(dt);
+
+    // --- Enemies: behavior + realize their attack events. ---
+    for (const e of this.enemies) {
+      const events = e.update(dt, this);
+      for (const ev of events) this._realizeEnemyEvent(ev);
+    }
+
+    // --- Civilians. ---
+    for (const c of this.civilians) c.update(dt, this);
+
     // --- Projectiles & particles. ---
     this.projectiles.update(dt);
+    this.hostiles.update(dt);
     this.particles.update(dt);
 
-    // AIDEV-NOTE: bullet<->enemy/civilian collision is wired in Phase 4 once
-    // those entity groups exist; systems/collision.js is already in place and
-    // unit-tested. Hook it in here: collidePairs(this.projectiles.toArray(),
-    // enemies, onHit) then spawn a hitSpark + kill the bullet on impact.
+    // --- Collisions (Phase 4). ---
+    this._resolveCollisions();
+
+    // --- Cull dead / off-screen entities. ---
+    this.enemies = this.enemies.filter(
+      (e) => e.active && !e.dead && !e.isOffscreen(this.height),
+    );
+    this.civilians = this.civilians.filter(
+      (c) => c.active && !c.isOffscreen(this.height),
+    );
+  }
+
+  /**
+   * Realize an enemy attack event into the world (spawn hostiles / apply slash).
+   * @param {object} ev
+   * @private
+   */
+  _realizeEnemyEvent(ev) {
+    if (ev.type === "enemyBullet") {
+      this.hostiles.spawnEnemyBullet(ev.x, ev.y, ev.vx, ev.vy, this.config);
+    } else if (ev.type === "barrel") {
+      this.hostiles.spawnBarrel(ev.x, ev.y, this.config);
+    } else if (ev.type === "slash") {
+      // AIDEV-NOTE: the slash is an instantaneous hit on the player. Full
+      // damage/lives consequences arrive in Phase 10; for now mark contact so
+      // SFX/HUD can react and the behavior is observable.
+      this.player.lastHitBy = "switchblade";
+    }
+  }
+
+  /**
+   * Resolve all Phase-4 collisions:
+   *   player bullet -> enemy    : damage; on death explosion + score + cull
+   *   player bullet -> civilian : penalty marker + remove civilian + bullet
+   *   player <-> enemy (ram)    : contact reported (Enforcer rams)
+   *   player <-> barrel         : contact; barrel consumed
+   *   player <-> civilian       : pass-through (reported, no damage)
+   *   enemy bullet -> player    : contact; bullet consumed
+   * @private
+   */
+  _resolveCollisions() {
+    const bullets = this.projectiles.toArray();
+
+    // Player bullets vs enemies. One-shot: a bullet that hits stops there.
+    collidePairs(
+      bullets,
+      this.enemies,
+      (bullet, enemy) => {
+        // AIDEV-NOTE: bulletproof enemies (Enforcer) absorb the round but take
+        // no damage. damage() returns true only on a killing blow.
+        const died = enemy.damage(bullet.damage);
+        if (died) {
+          this.particles.explosion(enemy.x, enemy.y, this.rng);
+          this.score += enemy.def.scoreValue;
+        } else {
+          this.particles.hitSpark(bullet.x, bullet.y, this.rng);
+        }
+        this.projectiles.kill(bullet);
+        return true; // consume the bullet
+      },
+    );
+
+    // Player bullets vs civilians (penalty). Re-read live bullets (some were
+    // consumed above). One-shot per bullet.
+    collidePairs(
+      this.projectiles.toArray(),
+      this.civilians,
+      (bullet, civ) => {
+        civ.active = false; // a shot civilian is removed
+        this.civilianHits += 1;
+        this.score = Math.max(0, this.score - this.config.civilians.scorePenalty);
+        this.particles.explosion(civ.x, civ.y, this.rng);
+        this.projectiles.kill(bullet);
+        return true;
+      },
+    );
+
+    // Player vs enemies (ram). Reported via player.lastHitBy; consequences P10.
+    const playerGroup = [this.player];
+    collidePairs(playerGroup, this.enemies, (player, enemy) => {
+      player.lastHitBy = enemy.type;
+      // Don't consume the player; allow contact with multiple enemies.
+      return false;
+    });
+
+    // Player vs barrels + enemy bullets (hostiles pool). Filter by category.
+    collidePairs(
+      this.hostiles.toArray(),
+      playerGroup,
+      (hostile, player) => {
+        player.lastHitBy = hostile.category;
+        this.hostiles.kill(hostile);
+        return true; // consume the hostile
+      },
+    );
+
+    // Player vs civilians (pass-through; reported only, no damage/removal).
+    collidePairs(playerGroup, this.civilians, (player, civ) => {
+      player.touchingCivilian = true;
+      return false;
+    });
+  }
+
+  /**
+   * AIDEV-TODO(P5): TEMPORARY debug spawner. Cycles through every enemy type and
+   * drops civilians so all Phase-4 behaviors can be observed in-browser. Replaced
+   * by systems/director.js in Phase 5. Spawns within the road body at the top.
+   * @param {number} dt
+   * @private
+   */
+  _debugSpawn(dt) {
+    const d = this.config.director;
+    const sampleTop = this.road.sampleAt(this.distance + this.height);
+
+    this._dbgEnemyTimer -= dt;
+    if (this._dbgEnemyTimer <= 0) {
+      this._dbgEnemyTimer = d.initialSpawnInterval;
+      const type = ENEMY_TYPES[this._dbgEnemyIdx % ENEMY_TYPES.length];
+      this._dbgEnemyIdx += 1;
+      const half = this.config.enemies[type].width / 2;
+      const x = this.rng.range(sampleTop.leftEdge + half, sampleTop.rightEdge - half);
+      this.enemies.push(createEnemy(type, x, { config: this.config }));
+    }
+
+    this._dbgCivilianTimer -= dt;
+    if (this._dbgCivilianTimer <= 0) {
+      this._dbgCivilianTimer = this.config.civilians.driftInterval + 0.6;
+      const half = this.config.civilians.width / 2;
+      const x = this.rng.range(sampleTop.leftEdge + half, sampleTop.rightEdge - half);
+      this.civilians.push(new Civilian(x, x, { config: this.config }));
+    }
   }
 
   /**
@@ -187,7 +358,15 @@ export class World {
     this.player.reset();
     this.gun = new MachineGun();
     this.projectiles.clear();
+    this.hostiles.clear();
     this.particles.clear();
+    this.enemies = [];
+    this.civilians = [];
+    this.score = 0;
+    this.civilianHits = 0;
+    this._dbgEnemyTimer = this.config.director.initialSpawnInterval;
+    this._dbgCivilianTimer = 2.0;
+    this._dbgEnemyIdx = 0;
     this.state = "playing";
   }
 }

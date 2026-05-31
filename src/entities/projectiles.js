@@ -14,6 +14,16 @@
 // are live, so this system keeps its own `_active` array of checked-out bullets.
 // The pool supplies acquire()/release() for GC-free reuse; we iterate `_active`.
 // update() walks `_active` backwards so in-loop removal (swap-with-last) is safe.
+//
+// AIDEV-NOTE (Phase 4): the same pool now carries three projectile kinds, keyed
+// by `category`:
+//   "playerBullet" — player machine-gun rounds, travel UP (vy < 0).
+//   "enemyBullet"  — Road Lord rounds, travel DOWN (vy > 0).
+//   "barrel"       — Barrel Dumper barrels, roll DOWN and ACCELERATE (ay > 0),
+//                    using a circular hitbox (radius) instead of the rect bounds.
+// Acceleration (ax, ay) is integrated each tick; bullets leave them 0 so their
+// behavior is unchanged. resetBullet() restores all fields so a recycled slot
+// never carries stale barrel state into a player round.
 
 import { Pool } from "../engine/pool.js";
 import { config } from "../data/config.js";
@@ -29,8 +39,13 @@ function makeBullet() {
     y: 0,
     vx: 0,
     vy: 0,
+    // Acceleration (used by barrels; 0 for bullets).
+    ax: 0,
+    ay: 0,
     w: B.width,
     h: B.height,
+    // Circular hitbox radius for barrels; 0 means "use the rect bounds".
+    radius: 0,
     ttl: 0,
     age: 0,
     damage: B.damage,
@@ -51,8 +66,11 @@ function resetBullet(b) {
   b.y = 0;
   b.vx = 0;
   b.vy = 0;
+  b.ax = 0;
+  b.ay = 0;
   b.w = B.width;
   b.h = B.height;
+  b.radius = 0;
   b.ttl = B.ttl;
   b.age = 0;
   b.damage = B.damage;
@@ -89,13 +107,65 @@ export class Projectiles {
     b.y = spec.y;
     b.vx = spec.vx ?? 0;
     b.vy = spec.vy ?? 0;
+    if (spec.ax !== undefined) b.ax = spec.ax;
+    if (spec.ay !== undefined) b.ay = spec.ay;
     if (spec.ttl !== undefined) b.ttl = spec.ttl;
     if (spec.damage !== undefined) b.damage = spec.damage;
     if (spec.category !== undefined) b.category = spec.category;
     if (spec.w !== undefined) b.w = spec.w;
     if (spec.h !== undefined) b.h = spec.h;
+    if (spec.radius !== undefined) b.radius = spec.radius;
     this._active.push(b);
     return b;
+  }
+
+  /**
+   * Spawn an enemy bullet (travels downward; category "enemyBullet").
+   * @param {number} x center x
+   * @param {number} y center y
+   * @param {number} vx
+   * @param {number} vy downward velocity (> 0)
+   * @param {typeof config} [cfg]
+   * @returns {object}
+   */
+  spawnEnemyBullet(x, y, vx, vy, cfg = config) {
+    const eb = cfg.hostiles.enemyBullet;
+    return this.spawn({
+      x,
+      y,
+      vx,
+      vy,
+      w: eb.width,
+      h: eb.height,
+      damage: eb.damage,
+      ttl: eb.ttl,
+      category: "enemyBullet",
+    });
+  }
+
+  /**
+   * Spawn a rolling barrel: starts slow, accelerates downward, circular hitbox.
+   * @param {number} x center x
+   * @param {number} y center y
+   * @param {typeof config} [cfg]
+   * @returns {object}
+   */
+  spawnBarrel(x, y, cfg = config) {
+    const ba = cfg.hostiles.barrel;
+    return this.spawn({
+      x,
+      y,
+      vx: 0,
+      vy: ba.initialSpeed,
+      ax: 0,
+      ay: ba.accel,
+      w: ba.radius * 2,
+      h: ba.radius * 2,
+      radius: ba.radius,
+      damage: ba.damage,
+      ttl: ba.ttl,
+      category: "barrel",
+    });
   }
 
   /**
@@ -110,6 +180,9 @@ export class Projectiles {
     for (let i = this._active.length - 1; i >= 0; i--) {
       const b = this._active[i];
       b.age += dt;
+      // Integrate acceleration first (barrels speed up; bullets have ax=ay=0).
+      b.vx += b.ax * dt;
+      b.vy += b.ay * dt;
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       if (

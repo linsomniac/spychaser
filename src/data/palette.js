@@ -29,6 +29,14 @@ export const palette = Object.freeze({
   enemyHeavy: "#9b5de5", // armored / heavy variant (purple)
   enemyAccent: "#2a1620", // enemy window/shadow detail
 
+  // Civilians (neutral traffic — must not be destroyed).
+  civilian: "#9aa3b2", // grey civilian car body
+  civilianAccent: "#c8d0dd", // civilian windshield highlight
+
+  // Rolling barrels (Barrel Dumper hazard).
+  barrel: "#d98032", // rusty orange barrel
+  barrelRim: "#7a4416", // barrel rim/shadow
+
   // Projectiles & effects.
   bullet: "#ffe66d", // player bullets (bright yellow)
   enemyBullet: "#ff7b54", // enemy bullets (orange)

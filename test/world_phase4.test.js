@@ -1,0 +1,171 @@
+// test/world_phase4.test.js
+// Integration coverage for Phase-4 wiring in core/world.js: spawning, enemy
+// behavior realization, collisions, scoring, and culling — all headless.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { World } from "../src/core/world.js";
+import { createEnemy } from "../src/entities/enemies.js";
+import { Civilian } from "../src/entities/civilian.js";
+import { config } from "../src/data/config.js";
+
+function freshWorld() {
+  const w = new World({ seed: 1 });
+  // Silence the debug spawner for deterministic, isolated assertions.
+  w._debugSpawn = () => {};
+  return w;
+}
+
+test("a player bullet kills a killable enemy and scores it", () => {
+  const w = freshWorld();
+  const enemy = createEnemy("switchblade", w.player.x, { config });
+  enemy.y = w.player.y - 100;
+  enemy.hp = 1; // one shot
+  w.enemies.push(enemy);
+  // Place a player bullet on top of the enemy.
+  w.projectiles.spawn({ x: enemy.x, y: enemy.y, vx: 0, vy: 0, ttl: 5 });
+  const score0 = w.score;
+  w.update(1 / 60);
+  assert.equal(enemy.dead, true);
+  assert.equal(w.score, score0 + config.enemies.switchblade.scoreValue);
+  // Bullet consumed; enemy culled from the live list.
+  assert.equal(w.projectiles.activeCount, 0);
+  assert.ok(!w.enemies.includes(enemy));
+});
+
+test("an Enforcer absorbs bullets without dying or scoring", () => {
+  const w = freshWorld();
+  const enf = createEnemy("enforcer", w.player.x, { config });
+  enf.y = w.player.y - 100;
+  w.enemies.push(enf);
+  w.projectiles.spawn({ x: enf.x, y: enf.y, vx: 0, vy: 0, ttl: 5 });
+  const score0 = w.score;
+  w.update(1 / 60);
+  assert.equal(enf.dead, false);
+  assert.equal(w.score, score0); // no points
+  assert.equal(w.projectiles.activeCount, 0); // bullet absorbed
+});
+
+test("shooting a civilian applies the penalty and removes it", () => {
+  const w = freshWorld();
+  w.score = 1000;
+  const civ = new Civilian(w.player.x, w.player.x, { config });
+  civ.y = w.player.y - 80;
+  w.civilians.push(civ);
+  w.projectiles.spawn({ x: civ.x, y: civ.y, vx: 0, vy: 0, ttl: 5 });
+  w.update(1 / 60);
+  assert.equal(w.civilianHits, 1);
+  assert.equal(w.score, 1000 - config.civilians.scorePenalty);
+  assert.ok(!w.civilians.includes(civ));
+});
+
+test("score never goes negative on a civilian penalty", () => {
+  const w = freshWorld();
+  w.score = 50;
+  const civ = new Civilian(w.player.x, w.player.x, { config });
+  civ.y = w.player.y - 80;
+  w.civilians.push(civ);
+  w.projectiles.spawn({ x: civ.x, y: civ.y, vx: 0, vy: 0, ttl: 5 });
+  w.update(1 / 60);
+  assert.equal(w.score, 0);
+});
+
+test("an enemy bullet hitting the player is reported and consumed", () => {
+  const w = freshWorld();
+  w.hostiles.spawnEnemyBullet(w.player.x, w.player.y, 0, 0);
+  w.update(1 / 60);
+  assert.equal(w.player.lastHitBy, "enemyBullet");
+  assert.equal(w.hostiles.activeCount, 0);
+});
+
+test("a barrel hitting the player is reported and consumed", () => {
+  const w = freshWorld();
+  w.hostiles.spawnBarrel(w.player.x, w.player.y);
+  w.update(1 / 60);
+  assert.equal(w.player.lastHitBy, "barrel");
+  assert.equal(w.hostiles.activeCount, 0);
+});
+
+test("ramming an Enforcer reports contact (player not removed)", () => {
+  const w = freshWorld();
+  const enf = createEnemy("enforcer", w.player.x, { config });
+  enf.y = w.player.y; // overlapping
+  w.enemies.push(enf);
+  w.update(1 / 60);
+  assert.equal(w.player.lastHitBy, "enforcer");
+});
+
+test("player vs civilian is pass-through (reported, no damage/removal)", () => {
+  const w = freshWorld();
+  const civ = new Civilian(w.player.x, w.player.x, { config });
+  civ.y = w.player.y; // overlapping
+  w.civilians.push(civ);
+  w.update(1 / 60);
+  assert.equal(w.player.touchingCivilian, true);
+  assert.ok(w.civilians.includes(civ)); // not destroyed by contact
+});
+
+test("a Road Lord spawns a hostile bullet into the hostiles pool", () => {
+  const w = freshWorld();
+  const rl = createEnemy("roadLord", w.player.x, { config });
+  rl.y = 50;
+  w.enemies.push(rl);
+  w.update(1 / 60); // first tick fires (cooldown starts ready)
+  let found = false;
+  w.hostiles.forEach((p) => {
+    if (p.category === "enemyBullet") found = true;
+  });
+  assert.ok(found);
+});
+
+test("a Barrel Dumper drops a barrel into the hostiles pool", () => {
+  const w = freshWorld();
+  const bd = createEnemy("barrelDumper", w.player.x, { config });
+  bd.y = 50;
+  w.enemies.push(bd);
+  w.update(1 / 60);
+  let found = false;
+  w.hostiles.forEach((p) => {
+    if (p.category === "barrel") found = true;
+  });
+  assert.ok(found);
+});
+
+test("off-screen enemies and civilians are culled", () => {
+  const w = freshWorld();
+  const e = createEnemy("roadLord", w.player.x, { config });
+  e.y = config.VIRTUAL_HEIGHT + 500;
+  w.enemies.push(e);
+  const c = new Civilian(w.player.x, w.player.x, { config });
+  c.y = config.VIRTUAL_HEIGHT + 500;
+  w.civilians.push(c);
+  w.update(1 / 60);
+  assert.equal(w.enemies.length, 0);
+  assert.equal(w.civilians.length, 0);
+});
+
+test("the debug spawner eventually produces enemies and civilians", () => {
+  const w = new World({ seed: 5 }); // keep the real debug spawner
+  // AIDEV-NOTE: assert that spawns HAPPEN over the run, not that any survive to
+  // the final instant — fast cars can all scroll off the bottom by tick 600.
+  let everEnemy = false;
+  let everCivilian = false;
+  for (let i = 0; i < 600; i++) {
+    w.update(1 / 60); // ~10s
+    if (w.enemies.length > 0) everEnemy = true;
+    if (w.civilians.length > 0) everCivilian = true;
+  }
+  assert.ok(everEnemy, "debug spawner should produce enemies");
+  assert.ok(everCivilian, "debug spawner should produce civilians");
+});
+
+test("reset clears Phase-4 state", () => {
+  const w = new World({ seed: 2 });
+  for (let i = 0; i < 300; i++) w.update(1 / 60);
+  w.score = 500;
+  w.reset();
+  assert.equal(w.enemies.length, 0);
+  assert.equal(w.civilians.length, 0);
+  assert.equal(w.score, 0);
+  assert.equal(w.civilianHits, 0);
+  assert.equal(w.hostiles.activeCount, 0);
+});

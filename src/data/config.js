@@ -99,7 +99,16 @@ export const config = Object.freeze({
   }),
 
   // --- Enemies ---
+  // AIDEV-NOTE: Phase 4 cast. Coordinate convention matches the renderer: +y is
+  // DOWN. Enemies enter from the top (spawnY < 0) and drive DOWN slower than the
+  // road scroll, so relative to the player they hang near the top and fall back.
+  // `approachSpeed` is their downward screen velocity (virtual px/s). They steer
+  // laterally toward the player's x at `steerSpeed`. Bulletproof enemies ignore
+  // bullet damage (Enforcer). `scoreValue` 0 means "no kill points" (Enforcer
+  // can't be shot dead).
   enemies: Object.freeze({
+    spawnY: -70, // spawn just above the top edge, virtual px
+
     standard: Object.freeze({
       width: 36,
       height: 64,
@@ -115,6 +124,91 @@ export const config = Object.freeze({
       scoreValue: 300,
       fireCooldown: 1.2,
     }),
+
+    // Switchblade: pulls alongside the player and slashes its tires.
+    switchblade: Object.freeze({
+      width: 36,
+      height: 64,
+      hp: 2,
+      approachSpeed: 90,
+      steerSpeed: 150, // lateral speed when matching the player's x
+      slashRangeX: 48, // lateral range within which the slash connects
+      slashRangeY: 84, // vertical band within which the slash connects
+      slashCooldown: 0.9,
+      scoreValue: 150,
+    }),
+    // Enforcer: bulletproof heavy car; must be rammed off the road.
+    enforcer: Object.freeze({
+      width: 46,
+      height: 74,
+      hp: Infinity, // bullets do nothing
+      bulletproof: true,
+      approachSpeed: 60,
+      steerSpeed: 120,
+      scoreValue: 0, // cannot be killed by guns -> no kill points
+    }),
+    // Road Lord: armed car that returns fire.
+    roadLord: Object.freeze({
+      width: 38,
+      height: 66,
+      hp: 3,
+      approachSpeed: 70,
+      steerSpeed: 90,
+      fireCooldown: 1.1,
+      bulletSpeed: 360, // downward (+y)
+      scoreValue: 250,
+    }),
+    // Barrel Dumper: truck that drops rolling barrels.
+    barrelDumper: Object.freeze({
+      width: 48,
+      height: 80,
+      hp: 2,
+      approachSpeed: 50,
+      steerSpeed: 60,
+      dropCooldown: 1.4,
+      scoreValue: 200,
+    }),
+  }),
+
+  // --- Enemy projectiles / rolling barrels (pooled, extend projectiles.js) ---
+  // AIDEV-NOTE: Enemy bullets travel DOWN (vy > 0). Barrels start slow and
+  // accelerate downward toward the player (ay > 0) and use circular collision
+  // (radius), unlike the rectangular bullets.
+  hostiles: Object.freeze({
+    enemyBullet: Object.freeze({
+      width: 6,
+      height: 16,
+      damage: 1,
+      ttl: 3,
+    }),
+    barrel: Object.freeze({
+      radius: 13,
+      initialSpeed: 70, // downward, virtual px/s
+      accel: 220, // downward acceleration, virtual px/s^2
+      damage: 1,
+      ttl: 6,
+    }),
+  }),
+
+  // --- Civilians (neutral, pass-through traffic) ---
+  // AIDEV-NOTE: Civilians must NOT be destroyed; shooting one is penalized and
+  // suspends the bonus (full lives logic lands in Phase 10). They cruise slower
+  // than the road so they fall behind, with a gentle lane drift for life.
+  civilians: Object.freeze({
+    width: 36,
+    height: 64,
+    spawnY: -70,
+    approachSpeed: 80,
+    driftSpeed: 26, // lateral drift toward a wandering target
+    driftInterval: 1.8, // seconds between drift-target re-rolls
+    scorePenalty: 300, // points lost for destroying a civilian
+  }),
+
+  // --- Explosions (visual; lifetime-only logic) ---
+  explosions: Object.freeze({
+    ttl: 0.5,
+    maxRadius: 44,
+    capacity: 16,
   }),
 
   // --- Spawn director ---
