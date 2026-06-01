@@ -1,19 +1,22 @@
 // main.js
 //
 // Browser bootstrap. This is the only module that touches the DOM at startup.
-// It wires together the engine harness:
-//   GameCanvas (DPR + letterbox) + Input (keyboard) + World (sim) + Loop (timing)
-// and runs a render that, for Phase 0, simply clears the canvas to the palette
-// background. Later phases add a renderer that draws the world.
+// It wires the engine harness to the top-level orchestrator:
+//   GameCanvas (DPR + letterbox) + Input (keyboard) + Game (world + state
+//   machine + render) + Loop (fixed-timestep timing).
 //
-// AIDEV-NOTE: All gameplay math lives in core/* and engine/* (no DOM). main.js
-// is the thin imperative shell; keep logic out of here so it stays testable.
+// AIDEV-NOTE: All gameplay + flow logic lives in core/* and engine/* (no DOM).
+// main.js is the thin imperative shell: it constructs the collaborators, hands
+// them to core/game.js, and bridges the loop to requestAnimationFrame. Keep
+// logic out of here so it stays unit-testable (the Game is driven headlessly in
+// test/game.test.js).
 
 import { GameCanvas } from "./engine/canvas.js";
 import { Input } from "./engine/input.js";
 import { Loop } from "./engine/loop.js";
-import { World } from "./core/world.js";
+import { Game } from "./core/game.js";
 import { Renderer } from "./render/renderer.js";
+import { Screens } from "./render/screens.js";
 import { config } from "./data/config.js";
 
 function boot() {
@@ -30,32 +33,32 @@ function boot() {
   const input = new Input();
   input.attach(window);
 
-  // Deterministic-but-varied seed: time-derived so each session differs, while
-  // tests can still construct World with an explicit seed.
-  const world = new World({ seed: (Date.now() & 0x7fffffff) || 1 });
+  // The orchestrator owns the World + the game-flow StateMachine. A time-derived
+  // seed makes each session differ while reset() reseeds reproducibly per run;
+  // tests construct Game with an explicit seed + injected randomSeed instead.
+  const game = new Game({ seed: (Date.now() & 0x7fffffff) || 1 });
   const renderer = new Renderer(gameCanvas);
+  const screens = new Screens(gameCanvas);
+
+  game.attachInput(input);
+  game.attachRender(gameCanvas, renderer, screens);
 
   const loop = new Loop({
     step: config.FIXED_STEP,
     maxFrameTime: config.MAX_FRAME_TIME,
-    update: (dt) => {
-      // Feed the held-action snapshot to the world so the player can drive,
-      // then drain the edge buffer (one-shot presses are used in later phases).
-      world.setInput(input.snapshot());
-      input.consumePressed();
-      world.update(dt);
-    },
-    render: (_alpha) => {
-      // Phase 1 renderer: draw the scrolling procedural road.
-      renderer.render(world);
-    },
+    // The orchestrator samples input, runs flow + sim for this fixed step, and
+    // drains the input edge buffer so each press fires exactly once.
+    update: (dt) => game.update(dt),
+    // Draw the (possibly frozen) scene plus the active screen overlay.
+    render: (alpha) => game.render(alpha),
   });
+  game.loop = loop;
 
   loop.start();
 
   // Expose for debugging in the console; harmless in production.
   // @ts-ignore
-  window.__spychaser = { world, loop, input, gameCanvas, renderer };
+  window.__spychaser = { game, loop, input, gameCanvas, renderer, screens };
 }
 
 if (typeof document !== "undefined") {

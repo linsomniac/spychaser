@@ -12,7 +12,7 @@
 
 /**
  * Logical actions the game understands.
- * @typedef {"left"|"right"|"accel"|"brake"|"fire"|"special"|"pause"} Action
+ * @typedef {"left"|"right"|"accel"|"brake"|"fire"|"special"|"pause"|"enter"} Action
  */
 
 /**
@@ -36,6 +36,11 @@ export const DEFAULT_KEYMAP = Object.freeze({
   // Pause.
   KeyP: "pause",
   Escape: "pause",
+  // Start / confirm (spec §9): used by the game-flow state machine to begin a
+  // run from the title screen and to restart after game over (core/game.js reads
+  // it edge-triggered via wasPressed).
+  Enter: "enter",
+  NumpadEnter: "enter",
 });
 
 export class Input {
@@ -162,6 +167,7 @@ export class Input {
       fire: this.isDown("fire"),
       special: this.isDown("special"),
       pause: this.isDown("pause"),
+      enter: this.isDown("enter"),
     };
   }
 
