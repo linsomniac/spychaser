@@ -53,11 +53,70 @@ export class Renderer {
     this.gameCanvas.clear(palette.background);
     this.gameCanvas.applyTransform();
     this.drawRoad(world);
+    // Ice sheen lies on the road, UNDER the vehicles/bullets so cars sit on it.
+    if (world.weather && world.weather.isIce) this.drawIce(world);
     // Bullets paint under the vehicles; particles (muzzle/hit sparks) on top.
     if (world.projectiles) this.drawBullets(world.projectiles);
     if (world.hostiles) this.drawHostiles(world.hostiles);
     this.drawEntities(world);
     if (world.particles) world.particles.draw(this.ctx);
+    // Fog is an OVERLAY on top of everything (it hides distant traffic).
+    if (world.weather && world.weather.isFog) this.drawFog(world);
+  }
+
+  /**
+   * Draw the ice sheen (Phase 9). A pale-blue translucent wash over the play
+   * field that intensifies with the ice episode, signalling the slippery road.
+   * Purely cosmetic — the slippery handling lives in the player/weather logic.
+   * @param {import("../core/world.js").World} world
+   */
+  drawIce(world) {
+    const { ctx } = this;
+    const ice = world.config.weather.ice;
+    const alpha = ice.tintOpacity * world.weather.intensity;
+    if (alpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = ice.tint;
+    ctx.fillRect(0, 0, world.width, world.height);
+    ctx.restore();
+  }
+
+  /**
+   * Draw the fog vignette (Phase 9). Reduces the visible draw distance: the
+   * bottom of the screen (the player's row) stays clear while the top fades into
+   * a flat fog wall. The clear band is `fogVisibility()` of the field height from
+   * the bottom; above it a vertical gradient ramps up to `maxOpacity * intensity`.
+   *
+   * AIDEV-NOTE: drawn AFTER all entities so distant (high on the screen) traffic
+   * is genuinely obscured — this is the "reduced draw distance" the spec asks for,
+   * achieved as an overlay rather than by clipping the road sampler.
+   * @param {import("../core/world.js").World} world
+   */
+  drawFog(world) {
+    const { ctx } = this;
+    const H = world.height;
+    const fog = world.config.weather.fog;
+    const intensity = world.weather.intensity;
+    const peak = fog.maxOpacity * intensity;
+    if (peak <= 0) return;
+
+    // The lower `visible` fraction of the screen is clear; fog builds above it.
+    // The clear band spans y in [H*(1-visible), H]; the top (1-visible) fraction
+    // is foggy. As gradient fractions (0 = top, 1 = bottom): fog is full at 0 and
+    // fades to nothing by (1 - visible).
+    const visible = world.weather.fogVisibility();
+    const fadeStop = Math.min(1, Math.max(0, 1 - visible));
+
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, hexWithAlpha(fog.color, peak));
+    grad.addColorStop(fadeStop, hexWithAlpha(fog.color, 0));
+    grad.addColorStop(1, hexWithAlpha(fog.color, 0));
+
+    ctx.save();
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, world.width, H);
+    ctx.restore();
   }
 
   /**
@@ -237,6 +296,25 @@ export class Renderer {
       }
     }
   }
+}
+
+/**
+ * Build an rgba() string from a #rrggbb hex color and an alpha in [0,1]. Used for
+ * the fog gradient stops (Canvas gradients need per-stop alpha). Pure string math
+ * — no DOM. Falls back to the input as-is if it is not a 6-digit hex.
+ * @param {string} hex   "#rrggbb"
+ * @param {number} alpha 0..1
+ * @returns {string}
+ */
+function hexWithAlpha(hex, alpha) {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex);
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = n & 0xff;
+  const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
 export default Renderer;

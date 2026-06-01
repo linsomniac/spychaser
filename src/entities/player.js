@@ -138,6 +138,17 @@ export class Player {
     this.mode = MODE_CAR;
     /** @type {Boat} the boat sub-entity used while on water. */
     this._boat = new Boat({ config: this.config });
+
+    // --- Ice handling (Phase 9) ---
+    // AIDEV-NOTE: On dry road the car steers instantaneously (the original
+    // Phase 2 feel). Under an ICE weather episode the steering becomes slippery:
+    // the steer input drives a momentum-carrying lateral velocity `iceVx` eased
+    // at the weather's reduced effective grip (iceTraction), so the car keeps
+    // sliding after you let go and is slow to change direction. `iceVx` is only
+    // live while ice is active; it is zeroed otherwise so dry handling is
+    // byte-for-byte unchanged (and existing player tests keep passing).
+    /** @type {number} lateral velocity carried while on ice, virtual px/s. */
+    this.iceVx = 0;
   }
 
   /** True while the player is in boat mode (over a water section). */
@@ -162,8 +173,11 @@ export class Player {
    * @param {PlayerInput} input held-action snapshot
    * @param {import("../systems/road.js").Road} road the procedural road sampler
    * @param {number} distance world scroll distance at the car's row, virtual px
+   * @param {import("../systems/weather.js").Weather} [weather] active weather
+   *   (Phase 9). When an ICE episode is live the car's steering goes slippery;
+   *   omitted/clear weather keeps the original dry handling.
    */
-  update(dt, input, road, distance) {
+  update(dt, input, road, distance, weather) {
     // A crashed vehicle is inert: it ignores input and just coasts to a stop.
     if (this.crashed) {
       const tune = this.isBoat ? this.config.boat : this.config.player;
@@ -183,7 +197,7 @@ export class Player {
     if (this.mode === MODE_BOAT) {
       this._updateBoat(dt, i, sample);
     } else {
-      this._updateCar(dt, i, sample);
+      this._updateCar(dt, i, sample, weather);
     }
   }
 
@@ -207,19 +221,37 @@ export class Player {
   }
 
   /**
-   * Car handling for one step (the original Phase 2 behavior).
+   * Car handling for one step (the original Phase 2 behavior, plus the Phase 9
+   * ICE modifier).
    * @param {PlayerInput} i
    * @param {import("../systems/road.js").RoadSample} sample
+   * @param {import("../systems/weather.js").Weather} [weather]
    * @private
    */
-  _updateCar(dt, i, sample) {
+  _updateCar(dt, i, sample, weather) {
     const p = this.config.player;
 
     // --- Steering: lateral move, then clamp inside the field. ---
-    let dx = 0;
-    if (i.left) dx -= p.steerSpeed * dt;
-    if (i.right) dx += p.steerSpeed * dt;
-    this.x = clampLateral(this.x + dx, this.width, this.config.VIRTUAL_WIDTH);
+    // AIDEV-NOTE: dry road = instantaneous lateral move (original feel, keeps
+    // iceVx pinned at 0). On ICE we instead carry a lateral velocity eased at the
+    // weather's reduced effective grip so the car slides: the steer input sets a
+    // target lateral velocity, iceVx blends toward it slowly (boatTraction-style),
+    // and x moves by iceVx*dt. Same slidy momentum model the boat uses on water.
+    if (weather && weather.isIce) {
+      let target = 0;
+      if (i.left) target -= p.steerSpeed;
+      if (i.right) target += p.steerSpeed;
+      const grip = weather.effectiveGrip(p.grip);
+      const k = Math.min(1, grip * dt);
+      this.iceVx += (target - this.iceVx) * k;
+      this.x = clampLateral(this.x + this.iceVx * dt, this.width, this.config.VIRTUAL_WIDTH);
+    } else {
+      this.iceVx = 0;
+      let dx = 0;
+      if (i.left) dx -= p.steerSpeed * dt;
+      if (i.right) dx += p.steerSpeed * dt;
+      this.x = clampLateral(this.x + dx, this.width, this.config.VIRTUAL_WIDTH);
+    }
 
     // --- Throttle/brake -> forward speed. ---
     this.speed = applyThrottle(this.speed, i, p, dt);
@@ -319,6 +351,7 @@ export class Player {
     this.crashed = false;
     this.surface = SURFACE_ROAD;
     this.mode = MODE_CAR;
+    this.iceVx = 0;
     this._boat.reset();
   }
 }

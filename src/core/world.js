@@ -25,6 +25,7 @@ import {
   resolveBombBlast,
 } from "../systems/collision.js";
 import { Director } from "../systems/director.js";
+import { Weather } from "../systems/weather.js";
 
 /**
  * @typedef {Object} WorldOptions
@@ -145,6 +146,15 @@ export class World {
      */
     this.director = new Director({ config: this.config });
     /**
+     * Weather state machine (Phase 9). Fog (visibility) and ice (traction)
+     * episodes are triggered by the director's "weather" set-piece and clear on
+     * their own after a fixed duration. The renderer reads it for the fog
+     * vignette; the player reads it for ice steering. It advances on a seconds
+     * timer (no RNG) so a triggered episode is replay-stable.
+     * @type {Weather}
+     */
+    this.weather = new Weather({ config: this.config });
+    /**
      * Set-piece triggers fired by the director, drained by higher-level systems
      * in later phases (weapons van, helicopter, water, weather). Each entry is
      * { name, distance }.
@@ -201,10 +211,17 @@ export class World {
     this.time += dt;
     this.ticks += 1;
 
+    // --- Weather (Phase 9): advance any active fog/ice episode (timer-only). ---
+    // AIDEV-NOTE: updated BEFORE the player so the car reads this tick's ice
+    // intensity. The director's "weather" set-piece is what triggers an episode
+    // (see _realizeSpawn); here we only age it toward clearing.
+    this.weather.update(dt);
+
     // Drive the player from this tick's input, sampling the road at the car's
     // own row so its off-road/crash checks line up with what is rendered there.
+    // The weather is threaded in so an ICE episode makes the steering slippery.
     const playerDistance = this.distance + (this.height - this.player.y);
-    this.player.update(dt, this.input, this.road, playerDistance);
+    this.player.update(dt, this.input, this.road, playerDistance, this.weather);
 
     // --- Boat wake splash (Phase 8). ---
     // AIDEV-NOTE: while in boat mode and making way, kick up foam at the stern on
@@ -437,6 +454,15 @@ export class World {
           config: this.config,
         });
       }
+      // AIDEV-NOTE: Phase 9 — the "weather" milestone rolls fog vs ice from the
+      // world RNG (deterministic) and triggers that episode. Triggering while one
+      // is already running simply restarts with the freshly-rolled kind (the
+      // Weather machine replaces the active episode and re-runs the fade-in).
+      if (ev.name === "weather") {
+        const kinds = this.config.weather.kinds;
+        const kind = kinds[this.rng.int(0, kinds.length - 1)];
+        this.weather.trigger(kind);
+      }
       if (this.onSetpiece) this.onSetpiece(trigger, this);
     }
   }
@@ -485,6 +511,7 @@ export class World {
     this.score = 0;
     this.civilianHits = 0;
     this.director.reset();
+    this.weather.clear();
     this.setpieces = [];
     this.state = "playing";
   }

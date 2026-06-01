@@ -379,6 +379,50 @@ export const config = Object.freeze({
     }),
   }),
 
+  // --- Weather set-pieces (Phase 9, spec §6 "Weather set-pieces") ---
+  // AIDEV-NOTE: Two weather episodes, triggered + cleared by the director's
+  // "weather" set-piece. FOG reduces draw distance / adds a vignette (purely
+  // visual: renderer reads weather.fog). ICE reduces traction so the car's
+  // steering becomes slippery — instead of the car's normal instantaneous
+  // lateral move, the steer input drives a momentum-carrying lateral velocity
+  // eased at `iceGrip` (much lower than config.player.grip), exactly the same
+  // slidy model the boat uses on water. The traction math (iceTraction) is pure
+  // and unit-tested in test/weather.test.js. All durations are in seconds;
+  // weather decays/clears deterministically by timer so it never entangles RNG.
+  weather: Object.freeze({
+    // The kinds the director's weather set-piece can roll between (deterministic
+    // via the world RNG when realized). Keep names stable: renderer/player read
+    // them by string.
+    kinds: ["fog", "ice"],
+
+    fog: Object.freeze({
+      duration: 12.0, // seconds the fog episode lasts before clearing
+      fadeIn: 1.2, // seconds to ramp visibility down to full fog
+      fadeOut: 1.6, // seconds to ramp visibility back to clear when ending
+      // Visibility floor at full fog: fraction of the play-field height that
+      // stays clearly visible from the bottom (the car's row). 0.42 => roughly
+      // the lower 42% of the screen is clear, the top fades to fog.
+      visibleFraction: 0.42,
+      // Peak opacity of the fog vignette overlay at full intensity (0..1).
+      maxOpacity: 0.92,
+      color: "#aeb6c2", // flat grey-blue fog (renderer overlay tint)
+    }),
+
+    ice: Object.freeze({
+      duration: 10.0, // seconds the ice episode lasts before clearing
+      fadeIn: 1.0, // seconds to ramp traction down to slidiest
+      fadeOut: 1.4, // seconds to ramp grip back to normal when ending
+      // AIDEV-NOTE: traction at FULL ice intensity. iceTraction(intensity)
+      // lerps the car's effective lateral grip from config.player.grip (no ice,
+      // intensity 0) down toward player.grip * minGripFactor (full ice,
+      // intensity 1). minGripFactor < 1 => slidier. 0.18 is very slippery while
+      // still controllable.
+      minGripFactor: 0.18,
+      tint: "#cfe8ff", // pale blue sheen drawn over the road on ice
+      tintOpacity: 0.16, // overlay opacity for the ice sheen
+    }),
+  }),
+
   // --- Scoring ---
   scoring: Object.freeze({
     distanceScorePerPx: 0.02, // points awarded per virtual px traveled
