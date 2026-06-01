@@ -51,14 +51,20 @@ export class Loop {
     this.maxFrameTime = options.maxFrameTime ?? DEFAULT_MAX_FRAME_TIME;
     /** @type {() => number} */
     this._now = options.now ?? defaultNow;
+    // AIDEV-NOTE: rAF/cAF must be invoked with `window` as their receiver — the
+    // browser throws "Illegal invocation" if called as a detached method (e.g.
+    // `this._requestFrame(tick)`). Bind to the global so the stored reference is
+    // safe to call from any `this`. (Unit tests inject their own shims and never
+    // hit this branch.)
+    const _glob = typeof globalThis !== "undefined" ? globalThis : undefined;
     /** @type {((cb: FrameRequestCallback) => number) | null} */
     this._requestFrame =
       options.requestFrame ??
-      (typeof requestAnimationFrame !== "undefined" ? requestAnimationFrame : null);
+      (typeof requestAnimationFrame !== "undefined" ? requestAnimationFrame.bind(_glob) : null);
     /** @type {((h: number) => void) | null} */
     this._cancelFrame =
       options.cancelFrame ??
-      (typeof cancelAnimationFrame !== "undefined" ? cancelAnimationFrame : null);
+      (typeof cancelAnimationFrame !== "undefined" ? cancelAnimationFrame.bind(_glob) : null);
 
     if (this.step <= 0) {
       throw new RangeError("Loop step must be > 0");
