@@ -16,6 +16,7 @@
 // later phases or the road will visually disagree with gameplay.
 
 import { palette } from "../data/palette.js";
+import { Hud } from "./hud.js";
 
 /**
  * How finely to slice the screen vertically when drawing the curved road.
@@ -43,6 +44,12 @@ export class Renderer {
     this.gameCanvas = gameCanvas;
     /** @type {CanvasRenderingContext2D} */
     this.ctx = gameCanvas.ctx;
+    /**
+     * The heads-up display (Phase 10). Drawn last, OVER the scene + fog, in the
+     * same virtual coordinate space (the transform stays applied).
+     * @type {Hud}
+     */
+    this.hud = new Hud(gameCanvas);
   }
 
   /**
@@ -62,6 +69,9 @@ export class Renderer {
     if (world.particles) world.particles.draw(this.ctx);
     // Fog is an OVERLAY on top of everything (it hides distant traffic).
     if (world.weather && world.weather.isFog) this.drawFog(world);
+    // HUD overlays last (Phase 10): score/hi-score, distance/sector, bonus bar,
+    // cars-left icons, loaded-weapon box. Drawn over the fog so it stays legible.
+    if (world.scoring) this.hud.draw(world);
   }
 
   /**

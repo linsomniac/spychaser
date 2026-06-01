@@ -26,11 +26,14 @@ import {
 } from "../systems/collision.js";
 import { Director } from "../systems/director.js";
 import { Weather } from "../systems/weather.js";
+import { Scoring } from "../systems/scoring.js";
 
 /**
  * @typedef {Object} WorldOptions
  * @property {number} [seed]   RNG seed for deterministic runs.
  * @property {typeof config} [config]  Tunables (defaults to data/config.js).
+ * @property {Storage|null} [storage]  High-score backend for Scoring; defaults
+ *   to globalThis.localStorage in the browser, null (no persistence) in tests.
  */
 
 export class World {
@@ -132,10 +135,32 @@ export class World {
      */
     this._wakeTimer = 0;
 
-    /** Running score (full scoring/lives loop lands in Phase 10). */
-    this.score = 0;
-    /** Count of civilians destroyed this run (penalty marker for Phase 10). */
-    this.civilianHits = 0;
+    /**
+     * Scoring, lives & the bonus-time mechanic (Phase 10). The world routes all
+     * score/lives state through this one instance; `world.score` and
+     * `world.civilianHits` are accessors that delegate to it (so existing
+     * collision/test code reading/writing those fields keeps working). The high
+     * score is loaded from localStorage if available (no-op headless / in tests).
+     * @type {Scoring}
+     */
+    this.scoring = new Scoring({ config: this.config, storage: options.storage });
+    this.scoring.loadHighScore();
+
+    /**
+     * Distance already credited to the score (px). Each tick the world awards
+     * points for the NEW distance only (distance - _scoredDistance). Kept
+     * separate from `distance` so distance scoring is monotonic and replay-stable.
+     * @type {number}
+     */
+    this._scoredDistance = 0;
+
+    /**
+     * Edge-detect the player's crash so a wreck is registered with Scoring
+     * exactly once (the player stays `crashed` for several ticks while coasting
+     * to a stop). See _handleCrash.
+     * @type {boolean}
+     */
+    this._wasCrashed = false;
 
     /**
      * Seeded spawn director (Phase 5). Replaces the Phase-4 debug spawner. It
@@ -223,6 +248,13 @@ export class World {
     const playerDistance = this.distance + (this.height - this.player.y);
     this.player.update(dt, this.input, this.road, playerDistance, this.weather);
 
+    // --- Crash -> lives state machine (Phase 10). ---
+    // AIDEV-NOTE: detect the rising edge of player.crashed (it latches for the
+    // coast-to-stop). On the edge we charge Scoring a car (free during the bonus
+    // window, otherwise a spare car); a free / paid-but-survivable wreck respawns
+    // the car, an out-of-cars wreck ends the run.
+    this._handleCrash();
+
     // --- Boat wake splash (Phase 8). ---
     // AIDEV-NOTE: while in boat mode and making way, kick up foam at the stern on
     // a fixed cadence. Pulls from the world RNG so a seed + input reproduces the
@@ -243,6 +275,18 @@ export class World {
     // never fully stops; the player's speed adds on top of that base.
     this.speed = this.config.road.baseScrollSpeed + Math.max(0, this.player.speed);
     this.distance += this.speed * dt;
+
+    // --- Scoring (Phase 10): age the bonus-time window + credit new distance. ---
+    // AIDEV-NOTE: advance the bonus timer FIRST so a wreck this tick is judged
+    // against the up-to-date window state, then award points for the distance
+    // covered THIS tick only (distance - already-scored). Distance scoring can by
+    // itself cross the banking threshold while the window is open.
+    this.scoring.update(dt);
+    const newDistance = this.distance - this._scoredDistance;
+    if (newDistance > 0) {
+      this.scoring.addDistance(newDistance);
+      this._scoredDistance = this.distance;
+    }
 
     // --- Weapons: machine gun autofire (hold Space => input.fire). ---
     // The player must be alive to shoot; a crashed car holds its fire.
@@ -312,6 +356,44 @@ export class World {
   }
 
   /**
+   * Crash -> lives state machine (Phase 10). Edge-detect the player's crash and
+   * charge Scoring exactly once per wreck (the crashed flag latches for the
+   * coast-to-stop, so we only act on the rising edge). A wreck inside the active
+   * bonus window — or one that still leaves cars in reserve — respawns the
+   * interceptor; running out of cars ends the run.
+   * @private
+   */
+  _handleCrash() {
+    const crashed = this.player.crashed;
+    if (crashed && !this._wasCrashed) {
+      // Rising edge: register the wreck. loseCar() returns false for a FREE
+      // replacement (bonus window) and true when a spare car was spent.
+      this.scoring.loseCar();
+      if (this.scoring.gameOver) {
+        this._endRun();
+      } else {
+        // Survivable wreck (free or paid): drop a wreck explosion and respawn the
+        // interceptor at the start position so play continues.
+        this.particles.explosion(this.player.x, this.player.y, this.rng);
+        this.player.reset();
+      }
+    }
+    // After reset(), player.crashed is false again, so the edge flag follows it.
+    this._wasCrashed = this.player.crashed;
+  }
+
+  /**
+   * End the current run: persist the high score and flip into the GAME_OVER
+   * lifecycle state. The full state machine / screens land in Phase 11; here we
+   * just stop the sim and lock in the score.
+   * @private
+   */
+  _endRun() {
+    this.scoring.saveHighScore();
+    this.state = "gameover";
+  }
+
+  /**
    * Realize an enemy attack event into the world (spawn hostiles / apply slash).
    * @param {object} ev
    * @private
@@ -352,7 +434,10 @@ export class World {
         const died = enemy.damage(bullet.damage);
         if (died) {
           this.particles.explosion(enemy.x, enemy.y, this.rng);
-          this.score += enemy.def.scoreValue;
+          // AIDEV-NOTE: route the kill through Scoring so a kill that crosses the
+          // bonus threshold can bank spare cars (Phase 10). scoreValue 0 (Enforcer)
+          // is a no-op there.
+          this.scoring.addKill(enemy.def.scoreValue);
         } else {
           this.particles.hitSpark(bullet.x, bullet.y, this.rng);
         }
@@ -368,8 +453,10 @@ export class World {
       this.civilians,
       (bullet, civ) => {
         civ.active = false; // a shot civilian is removed
-        this.civilianHits += 1;
-        this.score = Math.max(0, this.score - this.config.civilians.scorePenalty);
+        // AIDEV-NOTE: civilianPenalty does BOTH: subtract the penalty (floored at
+        // 0) + count the hit AND suspend the bonus (revoking free replacements /
+        // banking) per spec §6. Replaces the old inline score math.
+        this.scoring.civilianPenalty(this.config.civilians.scorePenalty);
         this.particles.explosion(civ.x, civ.y, this.rng);
         this.projectiles.kill(bullet);
         return true;
@@ -413,7 +500,7 @@ export class World {
         this.projectiles.kill(hit.projectile);
         if (this.helicopter.dead) {
           this.particles.explosion(this.helicopter.x, this.helicopter.y, this.rng);
-          this.score += this.config.helicopter.scoreValue;
+          this.scoring.addKill(this.config.helicopter.scoreValue);
         } else {
           this.particles.hitSpark(hit.projectile.x, hit.projectile.y, this.rng);
         }
@@ -482,6 +569,41 @@ export class World {
     return this.road.sectorAt(this.distance);
   }
 
+  // AIDEV-NOTE: `score` and `civilianHits` are accessors over the Scoring system
+  // so all existing collision/test code that reads/writes world.score (e.g.
+  // `world.score += value`, `world.score = 1000`) keeps working unchanged while
+  // the single source of truth lives in world.scoring. Writing world.score sets
+  // the underlying score directly (used by tests to stage a value); the scoring
+  // EVENTS (addKill/addDistance/civilianPenalty) are what drive banking/bonus.
+
+  /** Running score for the current run. */
+  get score() {
+    return this.scoring.score;
+  }
+
+  set score(v) {
+    this.scoring.score = v;
+  }
+
+  /** Civilians destroyed this run. */
+  get civilianHits() {
+    return this.scoring.civilianHits;
+  }
+
+  set civilianHits(v) {
+    this.scoring.civilianHits = v;
+  }
+
+  /** Persisted/in-memory high score (from localStorage when available). */
+  get hiScore() {
+    return this.scoring.hiScore;
+  }
+
+  /** Spare cars remaining (the bonus-time spare-car mechanic). */
+  get cars() {
+    return this.scoring.cars;
+  }
+
   /**
    * Reset to an initial state. Optionally reseed for a fresh deterministic run.
    * @param {number} [seed]
@@ -508,8 +630,11 @@ export class World {
     this.bombs = [];
     this._bombsDropped = 0;
     this._wakeTimer = 0;
-    this.score = 0;
-    this.civilianHits = 0;
+    // AIDEV-NOTE: reset() restores a fresh run's score/lives/bonus state but KEEPS
+    // the loaded high score (scoring.reset() preserves hiScore).
+    this.scoring.reset();
+    this._scoredDistance = 0;
+    this._wasCrashed = false;
     this.director.reset();
     this.weather.clear();
     this.setpieces = [];

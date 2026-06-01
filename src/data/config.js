@@ -423,12 +423,25 @@ export const config = Object.freeze({
     }),
   }),
 
-  // --- Scoring ---
+  // --- Scoring, lives & the bonus-time mechanic (Phase 10, spec §6) ---
+  // AIDEV-NOTE: The classic Spy Hunter loop. A run opens with a BONUS-TIME window
+  // (`bonusWindow` s) during which wrecked cars are replaced for FREE. Crossing
+  // `bonusThreshold` points BEFORE that window closes BANKS `bonusSpareCars` spare
+  // cars (once). After the window closes, each wreck costs a car; the game ends at
+  // zero. Harming a civilian SUSPENDS the bonus (revokes free replacements +
+  // blocks banking) on top of the `civilians.scorePenalty` point hit. These
+  // tunables drive systems/scoring.js (pure logic; unit-tested test/scoring.test.js).
   scoring: Object.freeze({
     distanceScorePerPx: 0.02, // points awarded per virtual px traveled
     comboWindow: 2.5, // seconds to chain kills for a combo
     comboMultiplierStep: 0.25, // each chained kill adds this to the multiplier
     comboMaxMultiplier: 5.0,
+
+    // --- Bonus-time / spare-car mechanic ---
+    startCars: 3, // spare cars in reserve at the start of a run
+    bonusWindow: 60, // seconds the free-replacement window stays open
+    bonusThreshold: 10000, // points that, crossed in-window, bank spare cars
+    bonusSpareCars: 3, // spare cars banked when the threshold is crossed
   }),
 
   // --- Pickups ---
