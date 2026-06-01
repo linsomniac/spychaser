@@ -17,9 +17,13 @@ import { Player } from "../entities/player.js";
 import { Projectiles } from "../entities/projectiles.js";
 import { MachineGun, fireMachineGun } from "../systems/weapons.js";
 import { ParticleSystem } from "../render/effects.js";
-import { createEnemy } from "../entities/enemies.js";
+import { createEnemy, Bomb, HELI_PHASE } from "../entities/enemies.js";
 import { Civilian } from "../entities/civilian.js";
-import { collidePairs } from "../systems/collision.js";
+import {
+  collidePairs,
+  resolveMissilesVsHelicopter,
+  resolveBombBlast,
+} from "../systems/collision.js";
 import { Director } from "../systems/director.js";
 
 /**
@@ -101,6 +105,22 @@ export class World {
     this.enemies = [];
     /** @type {import("../entities/civilian.js").Civilian[]} */
     this.civilians = [];
+
+    /**
+     * The Mad Bomber helicopter set-piece (Phase 7). At most one is live at a
+     * time; null when none is on-screen. Spawned by the director's "helicopter"
+     * set-piece, immune to bullets, destroyed only by missiles.
+     * @type {import("../entities/enemies.js").Helicopter|null}
+     */
+    this.helicopter = null;
+    /**
+     * Live bombs dropped by the helicopter. Plain array; spent bombs (blast
+     * window elapsed) are filtered out each tick.
+     * @type {import("../entities/enemies.js").Bomb[]}
+     */
+    this.bombs = [];
+    /** Total bombs dropped this run (observability for tests/SFX). */
+    this._bombsDropped = 0;
 
     /** Running score (full scoring/lives loop lands in Phase 10). */
     this.score = 0;
@@ -211,12 +231,24 @@ export class World {
     // --- Civilians. ---
     for (const c of this.civilians) c.update(dt, this);
 
+    // --- Helicopter set-piece (Phase 7): update + realize bomb drops. ---
+    if (this.helicopter) {
+      const events = this.helicopter.update(dt, this);
+      for (const ev of events) {
+        if (ev.type === "bomb") {
+          this.bombs.push(new Bomb(ev.x, ev.y, { config: this.config }));
+          this._bombsDropped += 1;
+        }
+      }
+    }
+    for (const b of this.bombs) b.update(dt);
+
     // --- Projectiles & particles. ---
     this.projectiles.update(dt);
     this.hostiles.update(dt);
     this.particles.update(dt);
 
-    // --- Collisions (Phase 4). ---
+    // --- Collisions (Phase 4 + Phase 7). ---
     this._resolveCollisions();
 
     // --- Cull dead / off-screen entities. ---
@@ -226,6 +258,16 @@ export class World {
     this.civilians = this.civilians.filter(
       (c) => c.active && !c.isOffscreen(this.height),
     );
+    // Spent bombs (blast window elapsed) are dropped from the live array.
+    this.bombs = this.bombs.filter((b) => b.active);
+    // Retire the helicopter once it has flown off the top (LEAVING + above edge).
+    if (
+      this.helicopter &&
+      this.helicopter.phase === HELI_PHASE.LEAVING &&
+      this.helicopter.isOffscreen(this.height)
+    ) {
+      this.helicopter = null;
+    }
   }
 
   /**
@@ -317,6 +359,31 @@ export class World {
       player.touchingCivilian = true;
       return false;
     });
+
+    // --- Phase 7: missiles vs helicopter; bomb blasts vs player. ---
+    // Bullets are ignored by the heli (immune); only missiles harm it. On the
+    // killing missile hit, explode + score.
+    if (this.helicopter && !this.helicopter.dead) {
+      const heliHits = resolveMissilesVsHelicopter(
+        this.projectiles.toArray(),
+        this.helicopter,
+      );
+      for (const hit of heliHits) {
+        this.projectiles.kill(hit.projectile);
+        if (this.helicopter.dead) {
+          this.particles.explosion(this.helicopter.x, this.helicopter.y, this.rng);
+          this.score += this.config.helicopter.scoreValue;
+        } else {
+          this.particles.hitSpark(hit.projectile.x, hit.projectile.y, this.rng);
+        }
+      }
+    }
+    // Detonated bombs blast the player. Each bomb blasts once (blastApplied).
+    const blastHits = resolveBombBlast(this.bombs, playerGroup);
+    for (const hit of blastHits) {
+      hit.target.lastHitBy = "bomb";
+      this.particles.explosion(hit.bomb.x, hit.bomb.y, this.rng);
+    }
   }
 
   /**
@@ -338,6 +405,14 @@ export class World {
     } else if (ev.kind === "setpiece") {
       const trigger = { name: ev.name, distance: this.distance };
       this.setpieces.push(trigger);
+      // AIDEV-NOTE: Phase 7 — the "helicopter" milestone spawns the Mad Bomber
+      // above the player. One-shot guard: ignore the trigger if a heli is
+      // already on-screen so a re-fired milestone never stacks two helis.
+      if (ev.name === "helicopter" && !this.helicopter) {
+        this.helicopter = createEnemy("helicopter", this.player.x, {
+          config: this.config,
+        });
+      }
       if (this.onSetpiece) this.onSetpiece(trigger, this);
     }
   }
@@ -379,6 +454,9 @@ export class World {
     this.particles.clear();
     this.enemies = [];
     this.civilians = [];
+    this.helicopter = null;
+    this.bombs = [];
+    this._bombsDropped = 0;
     this.score = 0;
     this.civilianHits = 0;
     this.director.reset();

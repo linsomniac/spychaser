@@ -112,9 +112,15 @@ export class Renderer {
     const drawables = [world.player];
     if (world.enemies) for (const e of world.enemies) drawables.push(e);
     if (world.civilians) for (const c of world.civilians) drawables.push(c);
+    // Phase 7: bombs (and their blasts) sort with the ground traffic.
+    if (world.bombs) for (const b of world.bombs) drawables.push(b);
     drawables.sort((a, b) => a.y - b.y);
     for (const ent of drawables) {
       if (ent && typeof ent.draw === "function") ent.draw(this.ctx);
+    }
+    // The helicopter is overhead — always draw it last, on top of everything.
+    if (world.helicopter && typeof world.helicopter.draw === "function") {
+      world.helicopter.draw(this.ctx);
     }
   }
 

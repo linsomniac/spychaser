@@ -244,12 +244,286 @@ export class BarrelDumper extends Enemy {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Phase 7 — Mad Bomber helicopter (spec §6) + dropped bombs.
+//
+// AIDEV-NOTE: The helicopter is an AERIAL set-piece, not road traffic, so it is
+// NOT an Enemy subclass — it has its own phase machine and is IMMUNE to bullets
+// (damage() always returns false). It is destroyed ONLY by missiles, via the
+// dedicated missileHit() method (driven by systems/collision.js
+// resolveMissilesVsHelicopter). Phases:
+//   ENTERING — descends from above to its hover line.
+//   TRACKING — hovers at hoverY, chases the player's x, drops bombs on a timer.
+//   LEAVING  — flies straight up off-screen once defeated.
+// update(dt, world) mirrors the Enemy contract: it returns a list of events
+// (here only { type:"bomb", x, y }) that the World realizes into Bomb entities.
+// ---------------------------------------------------------------------------
+export const HELI_PHASE = Object.freeze({
+  ENTERING: "entering",
+  TRACKING: "tracking",
+  LEAVING: "leaving",
+});
+
+export class Helicopter {
+  /**
+   * @param {number} x spawn lateral center, virtual px
+   * @param {number} [y] spawn y (defaults to just above the top edge)
+   * @param {{config?: typeof config}} [opts]
+   */
+  constructor(x, y, opts = {}) {
+    const cfg = opts.config ?? config;
+    /** @type {typeof config} */
+    this.config = cfg;
+    const def = cfg.helicopter;
+    this.def = def;
+    this.type = "helicopter";
+    this.width = def.width;
+    this.height = def.height;
+    this.x = x;
+    this.y = y ?? -def.height;
+    this.hp = def.hp;
+    // AIDEV-NOTE: bulletproof so the world's player-bullet collision pass (which
+    // calls enemy.damage()) never harms it; missiles use missileHit() instead.
+    this.bulletproof = true;
+    this.active = true;
+    this.dead = false;
+    this.phase = HELI_PHASE.ENTERING;
+    // Seconds accumulated toward the next bomb drop (only counts while TRACKING).
+    this.bombTimer = 0;
+  }
+
+  /** Top-left AABB for collision (center-based position). */
+  get bounds() {
+    return {
+      x: this.x - this.width / 2,
+      y: this.y - this.height / 2,
+      w: this.width,
+      h: this.height,
+    };
+  }
+
+  /**
+   * Advance the heli one step and return any drop events.
+   * @param {number} dt seconds
+   * @param {{player:{x:number,y:number}}} world
+   * @returns {Array<{type:string,x:number,y:number}>}
+   */
+  update(dt, world) {
+    const def = this.def;
+    switch (this.phase) {
+      case HELI_PHASE.ENTERING: {
+        this.y += def.entrySpeed * dt;
+        if (this.y >= def.hoverY) {
+          // Clamp to the hover line (no overshoot) and begin tracking.
+          this.y = def.hoverY;
+          this.phase = HELI_PHASE.TRACKING;
+          this.bombTimer = 0;
+        }
+        return [];
+      }
+      case HELI_PHASE.TRACKING: {
+        // Lateral chase with a deadzone to avoid jitter when aligned.
+        const dx = world.player.x - this.x;
+        if (Math.abs(dx) > def.trackDeadzone) {
+          this.x = approach(this.x, world.player.x, def.trackSpeed * dt);
+        }
+        // Bomb cadence: fire once per interval (SET, not subtract, so a big dt
+        // can't dump a burst — mirrors the machine-gun cadence model).
+        this.bombTimer += dt;
+        if (this.bombTimer >= def.bombInterval) {
+          this.bombTimer = 0;
+          return [{ type: "bomb", x: this.x, y: this.y }];
+        }
+        return [];
+      }
+      case HELI_PHASE.LEAVING:
+      default: {
+        this.y -= def.leaveSpeed * dt;
+        return [];
+      }
+    }
+  }
+
+  /**
+   * Bullet damage. The helicopter is IMMUNE to bullets — always a no-op that
+   * reports "not killed", matching the bulletproof Enemy contract used by the
+   * world's player-bullet collision pass.
+   * @returns {boolean} always false
+   */
+  // eslint-disable-next-line no-unused-vars
+  damage(_amount = 1) {
+    return false;
+  }
+
+  /**
+   * Apply a MISSILE hit (the only thing that harms the heli, spec §6). Returns
+   * true if this hit destroyed it; on death it is marked dead and switched to
+   * LEAVING so it flies off-screen.
+   * @param {number} [amount=1]
+   * @returns {boolean} died this hit
+   */
+  missileHit(amount = 1) {
+    if (this.dead) return false;
+    this.hp -= amount;
+    if (this.hp <= 0) {
+      this.dead = true;
+      this.active = false;
+      this.phase = HELI_PHASE.LEAVING;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * True once the heli has flown above the top edge (LEAVING) and can be culled.
+   * @param {number} _height play-field height (unused; heli leaves via the top)
+   * @returns {boolean}
+   */
+  // eslint-disable-next-line no-unused-vars
+  isOffscreen(_height) {
+    return this.y + this.height / 2 < -48;
+  }
+
+  /**
+   * Draw the helicopter (rounded body + rotor disc). Only canvas-touching method.
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  draw(ctx) {
+    const { x, y, width: w, height: h } = this;
+    ctx.save();
+    // Soft shadow on the road below.
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.ellipse(x, y + h * 0.7, w * 0.42, h * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // Rotor disc.
+    ctx.strokeStyle = palette.hudDim;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(x, y, w * 0.62, h * 0.18, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    // Body.
+    ctx.fillStyle = palette.enemyHeavy;
+    ctx.beginPath();
+    ctx.ellipse(x, y, w * 0.28, h * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Cockpit glass.
+    ctx.fillStyle = palette.enemyAccent;
+    ctx.beginPath();
+    ctx.ellipse(x, y + h * 0.12, w * 0.16, h * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// AIDEV-NOTE: Bombs dropped by the helicopter. They fall straight down and
+// detonate at road level (config.bomb.detonateY * VIRTUAL_HEIGHT), then expose a
+// circular blast for blastDuration seconds during which the world's collision
+// pass damages the player. update() ages + falls + detonates; blast() returns
+// the live blast circle (or null). The collision pass guards single application
+// via blastApplied (see systems/collision.js resolveBombBlast).
+export class Bomb {
+  /**
+   * @param {number} x center x, virtual px
+   * @param {number} y center y, virtual px
+   * @param {{config?: typeof config}} [opts]
+   */
+  constructor(x, y, opts = {}) {
+    const cfg = opts.config ?? config;
+    this.config = cfg;
+    const def = cfg.bomb;
+    this.def = def;
+    this.type = "bomb";
+    this.x = x;
+    this.y = y;
+    this.vy = def.fallSpeed;
+    this.width = def.width;
+    this.height = def.height;
+    this.radius = def.blastRadius;
+    this.detonateY = def.detonateY * cfg.VIRTUAL_HEIGHT;
+    this.active = true;
+    this.detonated = false;
+    /** set by collision.js once the blast has been applied (single-shot). */
+    this.blastApplied = false;
+    this.blastTimer = 0; // counts down the blast window after detonation
+    this.age = 0;
+  }
+
+  /** Top-left AABB for the falling bomb (used for rendering / future hits). */
+  get bounds() {
+    return {
+      x: this.x - this.width / 2,
+      y: this.y - this.height / 2,
+      w: this.width,
+      h: this.height,
+    };
+  }
+
+  /**
+   * Advance the bomb one step: fall until it reaches road level, detonate, then
+   * run out the blast window before deactivating.
+   * @param {number} dt seconds
+   */
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    if (!this.detonated) {
+      this.y += this.vy * dt;
+      if (this.y >= this.detonateY || this.age >= this.def.ttl) {
+        this.detonated = true;
+        this.blastTimer = this.def.blastDuration;
+      }
+    } else {
+      this.blastTimer -= dt;
+      if (this.blastTimer <= 0) this.active = false;
+    }
+  }
+
+  /**
+   * The live blast circle while detonated, else null.
+   * @returns {{x:number,y:number,r:number}|null}
+   */
+  blast() {
+    if (!this.detonated) return null;
+    return { x: this.x, y: this.y, r: this.radius };
+  }
+
+  /** True once the bomb is spent (blast window elapsed). */
+  isOffscreen() {
+    return !this.active;
+  }
+
+  /**
+   * Draw the bomb (falling) or its expanding blast (detonated).
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  draw(ctx) {
+    ctx.save();
+    if (!this.detonated) {
+      ctx.fillStyle = palette.enemyAccent;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.width / 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      const t = Math.max(0, this.blastTimer / this.def.blastDuration);
+      ctx.globalAlpha = 0.55 * t;
+      ctx.fillStyle = palette.explosion;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius * (1 - t * 0.4), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
 /**
  * Factory: build the right Enemy subclass for a type key.
- * @param {string} type one of ENEMY_TYPES
+ * @param {string} type one of ENEMY_TYPES (or "helicopter")
  * @param {number} x spawn lateral center
  * @param {{config?: typeof config}} [opts]
- * @returns {Enemy}
+ * @returns {Enemy|Helicopter}
  */
 export function createEnemy(type, x, opts) {
   switch (type) {
@@ -261,6 +535,8 @@ export function createEnemy(type, x, opts) {
       return new RoadLord(x, opts);
     case "barrelDumper":
       return new BarrelDumper(x, opts);
+    case "helicopter":
+      return new Helicopter(x, undefined, opts);
     default:
       throw new Error(`unknown enemy type: ${type}`);
   }

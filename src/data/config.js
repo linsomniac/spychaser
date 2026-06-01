@@ -259,6 +259,41 @@ export const config = Object.freeze({
     capacity: 16,
   }),
 
+  // --- Mad Bomber helicopter (Phase 7, spec §6 "Enemies") ---
+  // AIDEV-NOTE: The heli is an aerial set-piece, NOT road traffic. It is IMMUNE
+  // to machine-gun bullets and killable ONLY by missiles (spec §6: "destroyable
+  // only by missiles"). It enters from the top, descends to a hover line, tracks
+  // the player's x while dropping bombs on a cadence, then flies off the top once
+  // defeated. Logic lives in entities/enemies.js (Helicopter); the missile-only
+  // rule lives in systems/collision.js. +y is DOWN (renderer convention).
+  helicopter: Object.freeze({
+    width: 70,
+    height: 52,
+    hp: 3, // missile hits required to destroy it (missile damage is 5; see note)
+    entrySpeed: 130, // px/s descending while ENTERING
+    hoverY: 130, // y it settles at once TRACKING, virtual px
+    trackSpeed: 120, // px/s lateral chase of the player's x while TRACKING
+    trackDeadzone: 6, // px; don't jitter when this close to the player's x
+    bombInterval: 1.4, // seconds between bomb drops while TRACKING
+    leaveSpeed: 220, // px/s upward once defeated (LEAVING)
+    scoreValue: 1000, // points for destroying it
+  }),
+
+  // --- Bombs dropped by the helicopter (Phase 7) ---
+  // AIDEV-NOTE: A bomb falls straight down, detonates at road level (detonateY),
+  // then exposes a circular blast for blastDuration seconds during which the
+  // collision pass can damage the player. Each bomb blasts at most once.
+  bomb: Object.freeze({
+    width: 16,
+    height: 16,
+    fallSpeed: 240, // px/s downward
+    detonateY: 0.82, // fraction of VIRTUAL_HEIGHT at which the bomb detonates
+    blastRadius: 72, // px; circular blast applied on detonation
+    blastDuration: 0.35, // seconds the blast stays active
+    damage: 1, // damage applied to the player on blast
+    ttl: 6, // safety despawn, seconds
+  }),
+
   // --- Spawn director (Phase 5) ---
   // AIDEV-NOTE: The director schedules escalating traffic + milestone set-pieces,
   // all driven by the seeded world RNG so a seed reproduces the whole schedule.
