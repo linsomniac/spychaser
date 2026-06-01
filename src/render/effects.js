@@ -249,18 +249,34 @@ export class ParticleSystem {
   }
 
   /**
-   * Draw all live particles as fading filled squares. Canvas-only; not tested.
+   * Draw all live particles as soft, additively-blended round sparks that fade
+   * out on an ease-out curve. Canvas-only; not unit-tested (no logic asserted),
+   * so this is safe to tune for feel without touching the deterministic sim.
+   *
+   * AIDEV-NOTE: Phase 13 visual polish. Replaced the old hard 1px squares with
+   * round dots + a quadratic ease-out alpha (lingers bright, snaps off at the
+   * end) under a "lighter" composite so overlapping fire sparks bloom — the
+   * modern flat-vector look (spec §7). Composite + alpha are restored after the
+   * pass so the renderer's subsequent draws are unaffected.
    * @param {CanvasRenderingContext2D} ctx
    */
   draw(ctx) {
+    const prevComposite = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = "lighter";
     for (let i = 0; i < this._active.length; i++) {
       const p = this._active[i];
-      ctx.globalAlpha = this.lifeFrac(p);
+      // Ease-out fade: stays vivid most of its life, then drops off quickly.
+      const f = this.lifeFrac(p);
+      ctx.globalAlpha = f * f;
       ctx.fillStyle = p.color;
-      const s = p.size;
-      ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+      // A round spark grows slightly as it fades for a soft "puff" feel.
+      const r = (p.size / 2) * (1 + (1 - f) * 0.4);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = prevComposite;
   }
 }
 

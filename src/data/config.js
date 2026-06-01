@@ -432,7 +432,11 @@ export const config = Object.freeze({
   // blocks banking) on top of the `civilians.scorePenalty` point hit. These
   // tunables drive systems/scoring.js (pure logic; unit-tested test/scoring.test.js).
   scoring: Object.freeze({
-    distanceScorePerPx: 0.02, // points awarded per virtual px traveled
+    // AIDEV-NOTE: Phase 13 playtest tune. Raised 0.02 -> 0.05 so the steady
+    // distance drip keeps the score visibly ticking and makes the in-window
+    // banking threshold (bonusThreshold) reachable through play without
+    // trivializing it (~20k px of survival nets ~1000 pts of distance score).
+    distanceScorePerPx: 0.05, // points awarded per virtual px traveled
     comboWindow: 2.5, // seconds to chain kills for a combo
     comboMultiplierStep: 0.25, // each chained kill adds this to the multiplier
     comboMaxMultiplier: 5.0,
