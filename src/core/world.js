@@ -122,6 +122,15 @@ export class World {
     /** Total bombs dropped this run (observability for tests/SFX). */
     this._bombsDropped = 0;
 
+    /**
+     * Countdown until the next boat-wake splash (Phase 8). Counts down only
+     * while in boat mode; reset to the cadence interval on each emission. Kept
+     * on the world (not the player) so the splash uses the world RNG and stays
+     * deterministic and replay-stable.
+     * @type {number}
+     */
+    this._wakeTimer = 0;
+
     /** Running score (full scoring/lives loop lands in Phase 10). */
     this.score = 0;
     /** Count of civilians destroyed this run (penalty marker for Phase 10). */
@@ -196,6 +205,21 @@ export class World {
     // own row so its off-road/crash checks line up with what is rendered there.
     const playerDistance = this.distance + (this.height - this.player.y);
     this.player.update(dt, this.input, this.road, playerDistance);
+
+    // --- Boat wake splash (Phase 8). ---
+    // AIDEV-NOTE: while in boat mode and making way, kick up foam at the stern on
+    // a fixed cadence. Pulls from the world RNG so a seed + input reproduces the
+    // wake (deterministic), and uses the pooled particle system (no GC churn).
+    if (this.player.isBoat && !this.player.crashed && this.player.speed > 20) {
+      this._wakeTimer -= dt;
+      if (this._wakeTimer <= 0) {
+        this._wakeTimer = this.config.boatWake?.interval ?? 0.08;
+        const sternY = this.player.y + this.player.height / 2;
+        this.particles.splash(this.player.x, sternY, this.rng);
+      }
+    } else {
+      this._wakeTimer = 0;
+    }
 
     // AIDEV-NOTE: the world scrolls at a base speed plus the player's throttle
     // contribution. Even at zero throttle the road creeps forward so the chase
@@ -457,6 +481,7 @@ export class World {
     this.helicopter = null;
     this.bombs = [];
     this._bombsDropped = 0;
+    this._wakeTimer = 0;
     this.score = 0;
     this.civilianHits = 0;
     this.director.reset();

@@ -84,6 +84,46 @@ test("hitSpark spawns particles at the impact point", () => {
   assert.ok(Math.abs(p.y - 150) < 30);
 });
 
+test("splash spawns particles at the wake point deterministically", () => {
+  const rngA = createRng(55);
+  const rngB = createRng(55);
+  const a = new ParticleSystem();
+  const b = new ParticleSystem();
+  a.splash(270, 360, rngA);
+  b.splash(270, 360, rngB);
+  assert.ok(a.activeCount > 0, "splash spawns particles");
+  assert.equal(a.activeCount, b.activeCount, "same seed -> same count");
+
+  let pa = null;
+  let pb = null;
+  a.forEach((p) => (pa = pa ?? p));
+  b.forEach((p) => (pb = pb ?? p));
+  // Deterministic: identical first-particle state.
+  assert.equal(pa.x, pb.x);
+  assert.equal(pa.vx, pb.vx);
+  assert.equal(pa.vy, pb.vy);
+  // Spawned near the wake point (within a small jitter).
+  assert.ok(Math.abs(pa.x - 270) < 24, "splash near the wake x");
+  assert.ok(Math.abs(pa.y - 360) < 24, "splash near the wake y");
+});
+
+test("splash particles ride upward (wake spray) and expire", () => {
+  const rng = createRng(8);
+  const ps = new ParticleSystem();
+  ps.splash(100, 100, rng);
+  const count = ps.activeCount;
+  assert.ok(count > 0);
+  // At least one particle has upward (negative-vy) spray.
+  let anyUp = false;
+  ps.forEach((p) => {
+    if (p.vy < 0) anyUp = true;
+  });
+  assert.ok(anyUp, "splash should fling some spray upward");
+  // They are short-lived: a second of simulation clears them.
+  ps.update(1.0);
+  assert.equal(ps.activeCount, 0, "splash particles expire");
+});
+
 test("clear removes all particles", () => {
   const ps = new ParticleSystem();
   const rng = createRng(1);

@@ -17,6 +17,7 @@
 import { config } from "../data/config.js";
 import { palette } from "../data/palette.js";
 import { drawVehicle } from "../render/shapes.js";
+import { Boat, MODE_CAR, MODE_BOAT, modeForRoad } from "./boat.js";
 
 /** Surface the car is currently sitting on (returned by surfaceAt). */
 export const SURFACE_ROAD = "road";
@@ -125,6 +126,23 @@ export class Player {
     this.crashed = false;
     /** last classified surface, exposed for renderer/audio/HUD. */
     this.surface = SURFACE_ROAD;
+
+    // --- Boat mode (Phase 8) ---
+    // AIDEV-NOTE: The player is the SAME entity in both modes (so collision,
+    // scoring and the world's player.speed read-back are mode-agnostic); `mode`
+    // selects car vs boat handling and the `_boat` sub-entity owns the water
+    // handling/momentum. On water, update() delegates steering/throttle/y to the
+    // boat then mirrors its x/y/speed back onto the player so the rest of the
+    // world sees one consistent set of fields.
+    /** @type {(MODE_CAR|MODE_BOAT)} current handling mode. */
+    this.mode = MODE_CAR;
+    /** @type {Boat} the boat sub-entity used while on water. */
+    this._boat = new Boat({ config: this.config });
+  }
+
+  /** True while the player is in boat mode (over a water section). */
+  get isBoat() {
+    return this.mode === MODE_BOAT;
   }
 
   /** Axis-aligned bounds for collision (later phases). */
@@ -146,14 +164,56 @@ export class Player {
    * @param {number} distance world scroll distance at the car's row, virtual px
    */
   update(dt, input, road, distance) {
-    // A crashed car is inert: it ignores input and just coasts to a stop.
+    // A crashed vehicle is inert: it ignores input and just coasts to a stop.
     if (this.crashed) {
-      this.speed = applyThrottle(this.speed, {}, this.config.player, dt);
+      const tune = this.isBoat ? this.config.boat : this.config.player;
+      this.speed = applyThrottle(this.speed, {}, tune, dt);
       return;
     }
 
-    const p = this.config.player;
     const i = input ?? {};
+
+    // --- Mode transition (car<->boat) from the road's water/boathouse markers.
+    // AIDEV-NOTE: the mode is decided BEFORE handling so the boathouse frame
+    // already drives with the new vehicle. modeForRoad is pure & idempotent.
+    const sample = road.sampleAt(distance);
+    const nextMode = modeForRoad(this.mode, sample);
+    if (nextMode !== this.mode) this._switchMode(nextMode);
+
+    if (this.mode === MODE_BOAT) {
+      this._updateBoat(dt, i, sample);
+    } else {
+      this._updateCar(dt, i, sample);
+    }
+  }
+
+  /**
+   * Switch between car and boat, carrying lateral position + forward speed so
+   * the handoff is seamless (no teleport, no speed reset).
+   * @param {(MODE_CAR|MODE_BOAT)} nextMode
+   * @private
+   */
+  _switchMode(nextMode) {
+    if (nextMode === MODE_BOAT) {
+      this._boat.syncFrom({ x: this.x, y: this.y, speed: this.speed });
+      this.width = this.config.boat.width;
+      this.height = this.config.boat.height;
+    } else {
+      this._boat.writeTo(this);
+      this.width = this.config.player.width;
+      this.height = this.config.player.height;
+    }
+    this.mode = nextMode;
+  }
+
+  /**
+   * Car handling for one step (the original Phase 2 behavior).
+   * @param {PlayerInput} i
+   * @param {import("../systems/road.js").RoadSample} sample
+   * @private
+   */
+  _updateCar(dt, i, sample) {
+    const p = this.config.player;
 
     // --- Steering: lateral move, then clamp inside the field. ---
     let dx = 0;
@@ -165,7 +225,6 @@ export class Player {
     this.speed = applyThrottle(this.speed, i, p, dt);
 
     // --- Surface check at the car's lateral position. ---
-    const sample = road.sampleAt(distance);
     this.surface = surfaceAt(this.x, sample);
 
     if (this.surface === SURFACE_OFFFIELD) {
@@ -197,12 +256,49 @@ export class Player {
   }
 
   /**
+   * Boat handling for one step. The boat sub-entity owns the slidy water
+   * handling; we mirror its state back onto the player so collision / renderer /
+   * world read one consistent set of fields. There is NO grass-shoulder damage
+   * on water (the banks are water), but leaving the channel entirely is still a
+   * crash (spec §6 "leaving the play area entirely is a crash").
+   * @param {PlayerInput} i
+   * @param {import("../systems/road.js").RoadSample} sample
+   * @private
+   */
+  _updateBoat(dt, i, sample) {
+    // AIDEV-NOTE: re-sync the boat FROM the player first so external writes to
+    // player.x/.speed since the last tick (collision knockback, test setup) are
+    // honored — the boat carries its own lateral momentum (vx) but the player is
+    // the authoritative position. Then advance and mirror back.
+    this._boat.x = this.x;
+    this._boat.y = this.y;
+    this._boat.speed = this.speed;
+
+    this._boat.update(dt, i);
+    this.x = this._boat.x;
+    this.y = this._boat.y;
+    this.speed = this._boat.speed;
+
+    this.surface = surfaceAt(this.x, sample);
+    if (this.surface === SURFACE_OFFFIELD) {
+      this.crashed = true;
+      this.speed = applyThrottle(this.speed, {}, this.config.boat, dt);
+      this._boat.speed = this.speed;
+    }
+  }
+
+  /**
    * Draw the player car using the shared vehicle helpers. The only canvas-
    * touching method; called by the renderer after the road is drawn.
    *
    * @param {CanvasRenderingContext2D} ctx
    */
   draw(ctx) {
+    // On water, the boat sub-entity owns its own silhouette.
+    if (this.mode === MODE_BOAT) {
+      this._boat.draw(ctx);
+      return;
+    }
     const boosting = this.speed > this.config.player.maxSpeed * 0.55;
     drawVehicle(ctx, this.x, this.y, this.width, this.height, {
       body: this.crashed ? palette.smoke : palette.player,
@@ -214,12 +310,16 @@ export class Player {
   /** Reset to the starting handling state (keeps config). */
   reset() {
     const p = this.config.player;
+    this.width = p.width;
+    this.height = p.height;
     this.x = this.config.VIRTUAL_WIDTH / 2;
     this.y = this.config.VIRTUAL_HEIGHT * p.restY;
     this.speed = 0;
     this.damage = 0;
     this.crashed = false;
     this.surface = SURFACE_ROAD;
+    this.mode = MODE_CAR;
+    this._boat.reset();
   }
 }
 

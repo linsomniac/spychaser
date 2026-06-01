@@ -44,6 +44,14 @@ export const config = Object.freeze({
     waterPeriod: 16000, // px between potential water windows
     waterLength: 2600, // px length of a water stretch when present
     waterChance: 0.6, // probability a given period contains water
+    // AIDEV-NOTE: Boathouse markers (Phase 8). A short band of length
+    // `boathouseLength` sits at each end of a water stretch: the player drives
+    // THROUGH the entry boathouse (car -> boat) on the way in and the exit
+    // boathouse (boat -> car) on the way out. The marker bands are carved out of
+    // the water stretch interior (the open-water channel is waterLength minus the
+    // two boathouse bands), so a stretch with two boathouses still leaves open
+    // water in the middle. Keep boathouseLength * 2 < waterLength.
+    boathouseLength: 220, // px depth of each boathouse transition band
   }),
 
   // --- Player car ---
@@ -78,6 +86,36 @@ export const config = Object.freeze({
     offRoadDrag: 900, // extra deceleration applied above the cap, px/s^2
     offRoadDamagePerSec: 18, // damage accrued per second on the shoulder
     maxDamage: 100, // damage at which the car is wrecked
+  }),
+
+  // --- Boat mode (Phase 8, spec §6 "Water sections") ---
+  // AIDEV-NOTE: On water the player swaps to a boat (entities/boat.js). The boat
+  // shares the lateral position and forward speed of the car across the handoff
+  // (no teleport) but handles differently: slidier steering (lower `grip` =>
+  // momentum-carrying lateral drift via boatTraction), a slightly lower top
+  // speed, and NO grass-shoulder damage (the banks are water, not verge). The
+  // car<->boat transition fires at the boathouse markers carved into the water
+  // stretch by systems/road.js. Leaving the water channel entirely is still a
+  // crash, handled in entities/player.js.
+  boat: Object.freeze({
+    width: 40,
+    height: 70,
+    maxSpeed: 360, // boats top out a bit slower than the interceptor
+    minSpeed: -90,
+    accel: 460, // virtual px/s^2
+    brake: 620,
+    coastDecel: 220,
+    steerSpeed: 320, // target lateral speed at full steer, virtual px/s
+    // Slidier than the car (config.player.grip is 8.0): water carries momentum,
+    // so the lateral velocity eases toward the steer target slowly.
+    grip: 3.2,
+  }),
+
+  // --- Boat wake (Phase 8 splash particles) ---
+  // AIDEV-NOTE: cadence (seconds) of the stern-foam splash while the boat makes
+  // way. Emitted by core/world.js from the world RNG so it stays deterministic.
+  boatWake: Object.freeze({
+    interval: 0.08, // seconds between wake splash bursts
   }),
 
   // --- Weapons ---

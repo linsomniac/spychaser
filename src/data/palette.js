@@ -18,6 +18,9 @@ export const palette = Object.freeze({
   roadEdge: "#3a3f4b", // curb / outer road line
   laneMarker: "#e8c547", // dashed center/lane lines (warm yellow)
   water: "#1b6ca8", // water sections (boat mode); flat blue
+  waterDeep: "#155a8c", // darker water band shading
+  waterFoam: "#cfeeff", // boat wake / splash spray (near-white blue)
+  boathouse: "#8a5a3c", // boathouse transition marker (wooden brown)
 
   // Player.
   player: "#37c2ff", // hero car body (cyan-blue)

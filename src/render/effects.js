@@ -222,6 +222,33 @@ export class ParticleSystem {
   }
 
   /**
+   * Splash wake (Phase 8): a short-lived spray of foam particles kicked up at a
+   * boat's stern as it cuts through the water. Particles fan upward + sideways
+   * (the wake) so they trail behind the boat, then settle. Like hitSpark but in
+   * the water-foam palette and biased upward (-vy). Pooled + deterministic.
+   * @param {number} x wake center x.
+   * @param {number} y wake center y.
+   * @param {{range:(a:number,b:number)=>number, int:(a:number,b:number)=>number}} rng
+   */
+  splash(x, y, rng) {
+    const count = rng.int(5, 9);
+    for (let i = 0; i < count; i++) {
+      // Fan mostly upward (the wake sprays back over the water surface).
+      const spread = rng.range(-90, 90);
+      this.spawn({
+        x: x + rng.range(-6, 6),
+        y: y + rng.range(-3, 3),
+        vx: spread,
+        vy: rng.range(-150, -40), // upward spray
+        ttl: rng.range(0.22, 0.5),
+        size: rng.range(1.5, 3.5),
+        color: rng.next() < 0.7 ? palette.waterFoam : palette.water,
+        drag: 4,
+      });
+    }
+  }
+
+  /**
    * Draw all live particles as fading filled squares. Canvas-only; not tested.
    * @param {CanvasRenderingContext2D} ctx
    */

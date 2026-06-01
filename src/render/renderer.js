@@ -151,19 +151,48 @@ export class Renderer {
       const right = s.rightEdge;
       const shoulder = s.shoulderWidth;
 
-      // Grass shoulders (lighter strip right beside the asphalt).
-      ctx.fillStyle = palette.grassEdge;
-      ctx.fillRect(left - shoulder, top, shoulder, ROW_HEIGHT);
-      ctx.fillRect(right, top, shoulder, ROW_HEIGHT);
+      if (s.water) {
+        // --- Water section: a banked channel rather than asphalt. ---
+        // AIDEV-NOTE: on water the "shoulders" are darker deep water (the banks
+        // the boat must not run into) and the channel body is flat water with a
+        // subtle horizontal wave band so it reads as moving. The boathouse
+        // markers paint a wooden lintel across the channel at each end.
+        ctx.fillStyle = palette.waterDeep;
+        ctx.fillRect(left - shoulder, top, shoulder, ROW_HEIGHT);
+        ctx.fillRect(right, top, shoulder, ROW_HEIGHT);
 
-      // Asphalt road body. Water sections tint blue (boat mode arrives later).
-      ctx.fillStyle = s.water ? palette.water ?? "#1b6ca8" : palette.road;
-      ctx.fillRect(left, top, right - left, ROW_HEIGHT);
+        ctx.fillStyle = palette.water;
+        ctx.fillRect(left, top, right - left, ROW_HEIGHT);
 
-      // Curb lines at the road edges.
-      ctx.fillStyle = palette.roadEdge;
-      ctx.fillRect(left - 2, top, 2, ROW_HEIGHT);
-      ctx.fillRect(right, top, 2, ROW_HEIGHT);
+        // Faint wave stripes: every other row band gets a lighter overlay.
+        if (Math.floor(d / 24) % 2 === 0) {
+          ctx.save();
+          ctx.globalAlpha = 0.08;
+          ctx.fillStyle = palette.waterFoam;
+          ctx.fillRect(left, top, right - left, ROW_HEIGHT);
+          ctx.restore();
+        }
+
+        // Boathouse lintel: a wooden band across the channel at entry/exit.
+        if (s.boathouse) {
+          ctx.fillStyle = palette.boathouse;
+          ctx.fillRect(left - shoulder, top, (right - left) + shoulder * 2, ROW_HEIGHT);
+        }
+      } else {
+        // Grass shoulders (lighter strip right beside the asphalt).
+        ctx.fillStyle = palette.grassEdge;
+        ctx.fillRect(left - shoulder, top, shoulder, ROW_HEIGHT);
+        ctx.fillRect(right, top, shoulder, ROW_HEIGHT);
+
+        // Asphalt road body.
+        ctx.fillStyle = palette.road;
+        ctx.fillRect(left, top, right - left, ROW_HEIGHT);
+
+        // Curb lines at the road edges.
+        ctx.fillStyle = palette.roadEdge;
+        ctx.fillRect(left - 2, top, 2, ROW_HEIGHT);
+        ctx.fillRect(right, top, 2, ROW_HEIGHT);
+      }
     }
 
     this.drawLaneDashes(world);
@@ -199,6 +228,7 @@ export class Renderer {
       if (phase >= dash) continue; // in the gap
 
       const s = road.sampleAt(d);
+      if (s.water) continue; // no lane markings on a water channel
       // Interior lane divider lines (skip the outer edges, those are curbs).
       for (let lane = 1; lane < laneCount; lane++) {
         const t = lane / laneCount;

@@ -18,8 +18,22 @@ import {
   SURFACE_SHOULDER,
   SURFACE_OFFFIELD,
 } from "../src/entities/player.js";
+import { MODE_CAR, MODE_BOAT } from "../src/entities/boat.js";
 import { config } from "../src/data/config.js";
 import { Road } from "../src/systems/road.js";
+
+/**
+ * Find a distance inside the first water stretch for a seed, and the boathouse
+ * entry/exit distances for it. Used by the boat-transition tests.
+ */
+function firstWaterSection(seed) {
+  const r = new Road({ seed });
+  for (let d = 0; d <= 400000; d += 13) {
+    const sect = r.waterSectionAt(d);
+    if (sect) return { road: r, ...sect };
+  }
+  throw new Error(`no water section found for seed ${seed}`);
+}
 
 const P = config.player;
 
@@ -181,6 +195,110 @@ test("Player.update: a crashed player stops responding to input", () => {
   const speedAtCrash = player.speed;
   player.update(dt, { accel: true, right: true }, road, 0);
   assert.ok(player.speed <= speedAtCrash + 1e-9, "crashed car ignores throttle");
+});
+
+// --- Boat mode transition (Phase 8) -----------------------------------------
+
+test("Player.update: starts in car mode on dry road", () => {
+  const road = new Road({ seed: 1 });
+  const player = new Player();
+  player.update(1 / 60, { accel: true }, road, 0);
+  assert.equal(player.mode, MODE_CAR);
+});
+
+test("Player.update: driving into the boathouse switches car -> boat and back", () => {
+  const { road, start, end } = firstWaterSection(2026);
+  const player = new Player();
+  const dt = 1 / 60;
+
+  // Approach distance just before the water: still a car.
+  player.update(dt, {}, road, start - 50);
+  assert.equal(player.mode, MODE_CAR, "still a car before the water");
+
+  // Inside the entry boathouse: swaps to boat.
+  player.update(dt, {}, road, start + 1);
+  assert.equal(player.mode, MODE_BOAT, "entry boathouse swaps to boat");
+
+  // Open water: stays a boat.
+  const mid = (start + end) / 2;
+  player.update(dt, {}, road, mid);
+  assert.equal(player.mode, MODE_BOAT, "open water keeps the boat");
+
+  // Exit boathouse: swaps back to a car.
+  player.update(dt, {}, road, end - 1);
+  assert.equal(player.mode, MODE_CAR, "exit boathouse swaps back to a car");
+
+  // Back on dry road: remains a car.
+  player.update(dt, {}, road, end + 50);
+  assert.equal(player.mode, MODE_CAR, "dry road after the water is a car");
+});
+
+test("Player.update: the car<->boat handoff preserves x and speed (no teleport)", () => {
+  const { road, start } = firstWaterSection(2026);
+  const player = new Player();
+  const dt = 1 / 60;
+
+  // Build up a moderate speed (below the boat's top speed so the carry is clean,
+  // not a legitimate clamp) and shift laterally while still on the road.
+  player.x = config.VIRTUAL_WIDTH / 2 + 30;
+  for (let i = 0; i < 20; i++) player.update(dt, { accel: true }, road, start - 200);
+  const xBefore = player.x;
+  const speedBefore = player.speed;
+  assert.ok(speedBefore < config.boat.maxSpeed, "test premise: car under boat top speed");
+
+  // Cross into the boathouse: handoff should keep position + forward speed
+  // (one physics step of coast/steer is expected, but no teleport / no reset).
+  player.update(dt, {}, road, start + 1);
+  assert.equal(player.mode, MODE_BOAT);
+  // Lateral position carries exactly (boat re-syncs from the player's x; with no
+  // steer input its lateral velocity stays zero this frame).
+  assert.ok(Math.abs(player.x - xBefore) < 1e-6, "x preserved across handoff");
+  // Forward speed carries within one frame of coast deceleration (no reset).
+  const maxCoast = config.boat.coastDecel * dt + 1e-6;
+  assert.ok(
+    Math.abs(player.speed - speedBefore) <= maxCoast,
+    `speed preserved across handoff (delta ${Math.abs(player.speed - speedBefore)})`,
+  );
+  assert.ok(player.speed > speedBefore * 0.5, "speed not reset on handoff");
+});
+
+test("Player.update: on water there is no grass-shoulder damage", () => {
+  const { road, start, end } = firstWaterSection(2026);
+  const player = new Player();
+  const dt = 1 / 60;
+  const mid = (start + end) / 2;
+
+  // Enter the water first so we are a boat.
+  player.update(dt, {}, road, start + 1);
+  assert.equal(player.mode, MODE_BOAT);
+
+  // Pin the player far to the side and drive on open water; no damage accrues
+  // (the banks are water, not grass — leaving the channel is the crash check).
+  const s = road.sampleAt(mid);
+  player.x = s.leftEdge + 5; // near the channel edge but inside
+  for (let i = 0; i < 120; i++) {
+    player.update(dt, { accel: true }, road, mid);
+    player.x = s.leftEdge + 5;
+  }
+  assert.equal(player.damage, 0, "no shoulder damage in boat mode");
+  assert.equal(player.crashed, false, "still afloat inside the channel");
+});
+
+test("Player.update: leaving the water channel entirely still crashes", () => {
+  const { road, start, end } = firstWaterSection(2026);
+  const player = new Player();
+  const dt = 1 / 60;
+  const mid = (start + end) / 2;
+
+  // Become a boat.
+  player.update(dt, {}, road, start + 1);
+  assert.equal(player.mode, MODE_BOAT);
+
+  // Shove the boat well past the bank (off the field) and update.
+  const s = road.sampleAt(mid);
+  player.x = s.leftEdge - s.shoulderWidth - 40;
+  player.update(dt, {}, road, mid);
+  assert.equal(player.crashed, true, "off-field on water is still a crash");
 });
 
 // --- Determinism ------------------------------------------------------------

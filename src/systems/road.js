@@ -30,6 +30,14 @@ import { createRng } from "../engine/rng.js";
  * @property {number} rightEdge    x where road body meets the right shoulder
  * @property {number} shoulderWidth grass verge width on each side, virtual px
  * @property {boolean} water       true if this stretch is a water section
+ * @property {("entry"|"exit"|null)} boathouse boathouse transition band this
+ *   distance falls in, or null if open water / dry land
+ */
+
+/**
+ * @typedef {Object} WaterSection
+ * @property {number} start  distance (px) the water stretch begins (inclusive)
+ * @property {number} end    distance (px) the water stretch ends (exclusive)
  */
 
 /**
@@ -99,22 +107,65 @@ export class Road {
    * @private
    */
   _waterAt(distance) {
-    const r = this.config.road;
-    if (r.waterChance <= 0 || r.waterLength <= 0) return false;
-    const period = r.waterPeriod;
-    const windowIndex = Math.floor(distance / period);
-    // AIDEV-NOTE: never put water in the first window so the run always starts
-    // on solid road; the boathouse transition (later phase) needs lead-in road.
-    if (windowIndex <= 0) return false;
+    return this.waterSectionAt(distance) !== null;
+  }
 
-    if (hash01(windowIndex, this._waterSalt) >= r.waterChance) return false;
+  /**
+   * Bounds of the water stretch containing `distance`, or null if dry land.
+   * Each waterPeriod-length window has at most one water stretch placed at its
+   * tail end; whether it exists is a seeded hash of the window index, so the
+   * answer is a pure function of (seed, distance) — no sampling-order state.
+   *
+   * AIDEV-NOTE: This is the single source of truth for water geometry. _waterAt
+   * and boathouseAt both delegate here so the water flag and the boathouse
+   * markers can never disagree about where the stretch begins/ends.
+   * @param {number} distance
+   * @returns {WaterSection|null}
+   */
+  waterSectionAt(distance) {
+    const r = this.config.road;
+    if (r.waterChance <= 0 || r.waterLength <= 0) return null;
+    const d = distance > 0 ? distance : 0;
+    const period = r.waterPeriod;
+    const windowIndex = Math.floor(d / period);
+    // AIDEV-NOTE: never put water in the first window so the run always starts
+    // on solid road; the boathouse transition needs lead-in road.
+    if (windowIndex <= 0) return null;
+
+    if (hash01(windowIndex, this._waterSalt) >= r.waterChance) return null;
 
     // Place the water stretch at the tail end of the window so there is road
     // before and (when the window is long enough) after it.
     const windowStart = windowIndex * period;
-    const waterStart = windowStart + (period - r.waterLength);
-    const waterEnd = waterStart + r.waterLength;
-    return distance >= waterStart && distance < waterEnd;
+    const start = windowStart + (period - r.waterLength);
+    const end = start + r.waterLength;
+    if (d < start || d >= end) return null;
+    return { start, end };
+  }
+
+  /**
+   * Classify whether `distance` falls inside a boathouse transition band. The
+   * boathouse is the short marker the player drives through to swap between car
+   * and boat: an "entry" band at the leading edge of a water stretch and an
+   * "exit" band at the trailing edge. Open water between them is null, as is dry
+   * land. Pure function of (seed, distance).
+   *
+   * AIDEV-NOTE: entry/exit are defined by position WITHIN the stretch, not by
+   * travel direction — the player only ever travels forward (increasing
+   * distance), so "entry" is always reached first and "exit" last. The boat
+   * transition state machine (entities/boat.js) keys off these markers.
+   * @param {number} distance
+   * @returns {("entry"|"exit"|null)}
+   */
+  boathouseAt(distance) {
+    const sect = this.waterSectionAt(distance);
+    if (!sect) return null;
+    const bh = this.config.road.boathouseLength;
+    if (bh <= 0) return null;
+    const d = distance > 0 ? distance : 0;
+    if (d < sect.start + bh) return "entry";
+    if (d >= sect.end - bh) return "exit";
+    return null;
   }
 
   /**
@@ -151,6 +202,19 @@ export class Road {
     // read .curve see the actual rendered offset.
     curve = centerX - screenCenter;
 
+    // Water + boathouse: compute the section once and derive both flags so the
+    // water flag and the boathouse marker always agree (single source of truth).
+    const section = this.waterSectionAt(d);
+    const water = section !== null;
+    let boathouse = null;
+    if (water) {
+      const bh = this.config.road.boathouseLength;
+      if (bh > 0) {
+        if (d < section.start + bh) boathouse = "entry";
+        else if (d >= section.end - bh) boathouse = "exit";
+      }
+    }
+
     return {
       distance: d,
       sector: this.sectorAt(d),
@@ -160,7 +224,8 @@ export class Road {
       leftEdge: centerX - width / 2,
       rightEdge: centerX + width / 2,
       shoulderWidth: this.shoulderWidth,
-      water: this._waterAt(d),
+      water,
+      boathouse,
     };
   }
 

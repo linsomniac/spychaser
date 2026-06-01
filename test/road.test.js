@@ -121,6 +121,83 @@ test("road: water flag is deterministic for a seed", () => {
   }
 });
 
+// --- Water sections & boathouse markers (Phase 8) ---------------------------
+
+test("road: waterSectionAt returns null on dry land and bounds inside water", () => {
+  const r = new Road({ seed: 2026 });
+  // Find a distance inside water by scanning.
+  let waterD = -1;
+  for (let d = 0; d <= 200000; d += 17) {
+    if (r.sampleAt(d).water) {
+      waterD = d;
+      break;
+    }
+  }
+  assert.ok(waterD >= 0, "expected to find a water distance for this seed");
+
+  const sect = r.waterSectionAt(waterD);
+  assert.ok(sect, "waterSectionAt should return bounds inside water");
+  assert.ok(sect.start <= waterD && waterD < sect.end, "distance lies within bounds");
+  assert.ok(sect.end > sect.start, "section has positive length");
+  // Every distance reported as water must be inside the returned bounds.
+  assert.ok(r.sampleAt(sect.start).water, "section start is water");
+  assert.ok(r.sampleAt(sect.end - 1).water, "just before section end is water");
+
+  // A clearly dry distance returns null.
+  assert.equal(r.waterSectionAt(0), null, "start of run is dry land");
+});
+
+test("road: boathouseAt marks entry at section start and exit at section end", () => {
+  const r = new Road({ seed: 2026 });
+  let sect = null;
+  for (let d = 0; d <= 200000; d += 17) {
+    sect = r.waterSectionAt(d);
+    if (sect) break;
+  }
+  assert.ok(sect, "found a water section");
+  const bh = r.config.road.boathouseLength;
+
+  // Entry boathouse: just after the start of the water stretch.
+  assert.equal(r.boathouseAt(sect.start + 1), "entry", "entry band at section start");
+  // Exit boathouse: just before the end of the water stretch.
+  assert.equal(r.boathouseAt(sect.end - 1), "exit", "exit band at section end");
+  // Open water in the middle is neither boathouse.
+  const mid = (sect.start + sect.end) / 2;
+  assert.equal(r.boathouseAt(mid), null, "middle of stretch is open water");
+  // Dry land is never a boathouse.
+  assert.equal(r.boathouseAt(0), null, "dry land is not a boathouse");
+});
+
+test("road: boathouse classification is deterministic for a seed", () => {
+  const a = new Road({ seed: 7 });
+  const b = new Road({ seed: 7 });
+  for (let d = 0; d <= 80000; d += 199) {
+    assert.equal(a.boathouseAt(d), b.boathouseAt(d), `boathouse mismatch at ${d}`);
+  }
+});
+
+test("road: every boathouse distance is also water", () => {
+  const r = new Road({ seed: 99 });
+  for (let d = 0; d <= 120000; d += 23) {
+    if (r.boathouseAt(d)) {
+      assert.ok(r.sampleAt(d).water, `boathouse at ${d} must be over water`);
+    }
+  }
+});
+
+test("road: sample carries the boathouse classification", () => {
+  const r = new Road({ seed: 2026 });
+  let sect = null;
+  for (let d = 0; d <= 200000; d += 17) {
+    sect = r.waterSectionAt(d);
+    if (sect) break;
+  }
+  assert.ok(sect);
+  const s = r.sampleAt(sect.start + 1);
+  assert.equal(s.water, true);
+  assert.equal(s.boathouse, "entry");
+});
+
 test("road: curve offset stays within configured amplitude", () => {
   const r = new Road({ seed: 17 });
   for (let d = 0; d <= 60000; d += 47) {
