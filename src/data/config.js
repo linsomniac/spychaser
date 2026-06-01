@@ -96,6 +96,54 @@ export const config = Object.freeze({
       damage: 10,
       cooldown: 0.6, // seconds between specials
     }),
+
+    // --- Special weapons arsenal (Phase 6, spec §6) ---
+    // AIDEV-NOTE: A special is loaded from the weapons van and consumed on use.
+    // `kinds` is the loadable pool the van draws from (deterministic via RNG).
+    // `slot` decides which trigger context fires it: missiles fire FORWARD (the
+    // primary special, F/Shift while no rear-specific binding), oil/smoke deploy
+    // to the REAR. `charge` is how many times it can be used before depletion.
+    specials: Object.freeze({
+      kinds: ["missiles", "oil", "smoke"],
+      missiles: Object.freeze({
+        slot: "front",
+        charge: 3,
+        speed: 760, // virtual px/s, travels UP (vy < 0)
+        width: 8,
+        height: 20,
+        damage: 5, // enough to kill tough enemies / the helicopter (Phase 7)
+        spreadX: 0.6, // twin missiles flank the nose by this fraction of half-w
+      }),
+      oil: Object.freeze({
+        slot: "rear",
+        charge: 2,
+        width: 56,
+        height: 56,
+        life: 6.0, // seconds the slick persists on the road
+        spinDuration: 2.0, // seconds a pursuer spins out after touching it
+      }),
+      smoke: Object.freeze({
+        slot: "rear",
+        charge: 2,
+        width: 90,
+        height: 90,
+        life: 4.2, // seconds the cloud persists
+        blindDuration: 2.5, // seconds a pursuer is blinded after touching it
+      }),
+    }),
+  }),
+
+  // --- Weapons van set-piece (Phase 6) ---
+  // AIDEV-NOTE: The van drives ahead of the player; tucking into its open rear
+  // ramp for `loadFrames` continuous steps loads ONE random special. Geometry is
+  // in virtual px; rampZone is a band at the van's rear (bottom, since +y down).
+  van: Object.freeze({
+    width: 64,
+    height: 104,
+    approachSpeed: 90, // downward screen velocity, virtual px/s (like enemies)
+    loadFrames: 30, // continuous steps tucked in the ramp to load a special
+    rampInset: 8, // horizontal inset of the catch zone from the van sides
+    rampHeight: 30, // vertical depth of the rear ramp catch band
   }),
 
   // --- Enemies ---

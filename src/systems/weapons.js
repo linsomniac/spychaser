@@ -105,4 +105,121 @@ export function fireMachineGun(gun, dt, firing, player, projectiles) {
   return { spawned: shots, x: muzzleX, y: muzzleY };
 }
 
+// ---------------------------------------------------------------------------
+// Special weapons (Phase 6, spec §6 "Special-weapons arsenal")
+//
+// AIDEV-NOTE: Specials are PURE data descriptors. createSpecial builds one from
+// config; loadRandomSpecial draws a kind from the pool using an INJECTED rng
+// (the seeded createRng from engine/rng.js) so selection is deterministic and
+// testable. Effects are returned as plain data (specialEffect) and REALIZED by
+// the caller (spawn missile projectiles / deploy a field hazard). This keeps the
+// module canvas-free and unit-tested headlessly, mirroring the machine gun.
+// ---------------------------------------------------------------------------
+
+const SPECIAL = config.weapons.specials;
+
+/** Loadable special-weapon kinds, in fixed order (the van's draw pool). */
+export const SPECIAL_KINDS = Object.freeze([...SPECIAL.kinds]);
+
+const SPECIAL_NAMES = {
+  missiles: "MISSILES",
+  oil: "OIL SLICK",
+  smoke: "SMOKE",
+};
+
+/**
+ * Build a special-weapon descriptor for the player's loaded slot.
+ * @param {string} kind one of SPECIAL_KINDS
+ * @returns {{kind:string, name:string, slot:"front"|"rear", charge:number}}
+ */
+export function createSpecial(kind) {
+  const def = SPECIAL[kind];
+  if (!def) throw new Error(`unknown special: ${kind}`);
+  return {
+    kind,
+    name: SPECIAL_NAMES[kind] ?? kind.toUpperCase(),
+    slot: def.slot,
+    charge: def.charge,
+  };
+}
+
+/**
+ * Draw a random special from the pool using an injected (seeded) RNG.
+ * @param {{pick: (arr: ReadonlyArray<string>) => string}} rng
+ * @returns {ReturnType<typeof createSpecial>}
+ */
+export function loadRandomSpecial(rng) {
+  return createSpecial(rng.pick(SPECIAL_KINDS));
+}
+
+/**
+ * Whether a loaded special can be fired for the requested trigger slot.
+ * @param {{slot:string, charge:number}|null|undefined} special
+ * @param {"front"|"rear"} slot
+ * @returns {boolean}
+ */
+export function canUseSpecial(special, slot) {
+  return !!special && special.slot === slot && special.charge > 0;
+}
+
+/**
+ * Consume one charge of a special. Returns the special, or null if it could not
+ * be consumed (null / already empty). Never drives charge negative.
+ * @param {{charge:number}|null|undefined} special
+ * @returns {object|null}
+ */
+export function consumeSpecial(special) {
+  if (!special || special.charge <= 0) return null;
+  special.charge -= 1;
+  return special;
+}
+
+/**
+ * Describe the effect of using a special, given the firing entity (the player,
+ * center-based x/y with width/height). Returns plain data; the caller spawns the
+ * resulting missile projectiles or deploys the field hazard.
+ *
+ *   missiles -> { type:"projectiles", slot:"front", projectiles:[...] }
+ *   oil/smoke -> { type:"hazard", slot:"rear", hazard:kind, x, y }  (deployed
+ *               behind/below the player, since +y is DOWN)
+ *
+ * @param {{kind:string, slot:string}} special
+ * @param {{x:number, y:number, width:number, height?:number}} from
+ * @returns {object}
+ */
+export function specialEffect(special, from) {
+  const def = SPECIAL[special.kind];
+  const cx = from.x;
+  if (special.kind === "missiles") {
+    const half = from.width / 2;
+    const noseY = from.y - (from.height ?? 0) / 2;
+    const make = (offset) => ({
+      x: cx + offset,
+      y: noseY,
+      vx: 0,
+      vy: -def.speed, // travels UP the screen
+      width: def.width,
+      height: def.height,
+      damage: def.damage,
+      category: "playerMissile",
+      kind: "missile",
+      active: true,
+    });
+    return {
+      type: "projectiles",
+      slot: "front",
+      projectiles: [make(-half * def.spreadX), make(half * def.spreadX)],
+    };
+  }
+  // Rear hazards deploy behind (below) the player.
+  const rearY = from.y + (from.height ?? 0) / 2 + def.height / 2;
+  return {
+    type: "hazard",
+    slot: "rear",
+    hazard: special.kind,
+    x: cx,
+    y: rearY,
+  };
+}
+
 export default MachineGun;

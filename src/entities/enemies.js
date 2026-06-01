@@ -84,6 +84,13 @@ export class Enemy {
     // promptly), then re-arms to the per-type cooldown. behave() decrements this
     // each tick and fires when it reaches 0.
     this.cooldown = 0;
+    // AIDEV-NOTE: Phase 6 hazard effects. While `spinTimer > 0` the enemy has
+    // lost control (oil slick) and does NOT steer toward the player — it just
+    // drifts down. While `blindTimer > 0` the enemy is blinded (smoke) and also
+    // cannot track the player's lane. Both decay in update(). entities/hazards.js
+    // sets them via applyHazardToEnemy().
+    this.spinTimer = 0;
+    this.blindTimer = 0;
   }
 
   /** Top-left AABB for collision (center-based position). */
@@ -108,6 +115,14 @@ export class Enemy {
     if (!this.active || this.dead) return [];
     // Common downward drift.
     this.y += this.def.approachSpeed * dt;
+    // AIDEV-NOTE: spun-out (oil) or blinded (smoke) enemies cannot steer toward
+    // the player; they just drift. Decay both timers each tick. While impaired
+    // the attack behavior is also suppressed (a spinning/blind enemy can't
+    // line up a slash/shot).
+    const impaired = this.spinTimer > 0 || this.blindTimer > 0;
+    if (this.spinTimer > 0) this.spinTimer = Math.max(0, this.spinTimer - dt);
+    if (this.blindTimer > 0) this.blindTimer = Math.max(0, this.blindTimer - dt);
+    if (impaired) return [];
     // Steer toward the player's lane.
     this.x = approach(this.x, world.player.x, this.def.steerSpeed * dt);
     return this.behave(dt, world) ?? [];
