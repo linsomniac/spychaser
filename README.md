@@ -52,6 +52,16 @@ node --check src/engine/loop.js
 | Fire weapon     | Space                               |
 | Special weapon  | F **or** Shift                      |
 | Pause           | P / Esc                             |
+| Mute            | M                                   |
+| Start / confirm | Enter                               |
+
+## Audio
+
+Original spy/driving chiptune music plus procedural SFX (engine hum, machine
+gun, explosions, weapon-load jingle, civilian-hit warning, low-cars alarm,
+helicopter rotor) via the Web Audio API. Audio is unlocked on the first user
+gesture (browser autoplay policy) and `M` toggles mute. The music is original
+and merely evocative — it is **not** the copyrighted "Peter Gunn" theme.
 
 ## Project layout
 
@@ -67,6 +77,11 @@ src/
     input.js            Keyboard input mapping (see spec section 9)
   core/
     world.js            Simulation world (stub in Phase 0)
+  audio/
+    audio.js            Web Audio engine: context, master gain, mute, unlock
+    music.js            Original chiptune step-sequencer (bass/arp/lead)
+    sfx.js              Procedural sound effects (engine/gun/explosion/rotor/...)
+    bridge.js           Couples the headless world's audio events to Music + Sfx
   data/
     config.js           Gameplay tunables
     palette.js          Flat-vector color palette

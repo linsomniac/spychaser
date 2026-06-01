@@ -200,8 +200,42 @@ export class World {
      */
     this.input = {};
 
+    /**
+     * Per-tick AUDIO-EVENT QUEUE (Phase 12). The sim is canvas/Web-Audio free,
+     * so instead of calling SFX directly the World appends plain event tags here
+     * during update(); the browser audio bridge (main.js) drains them each frame
+     * via drainAudioEvents() and triggers the matching procedural sound. Keeping
+     * it a plain data array means the queue is fully unit-testable headlessly and
+     * the World never imports audio. Tags: "gun", "explosion", "civilianWarning",
+     * "lowCars", "weaponLoad".
+     * @type {Array<{type:string}>}
+     */
+    this.audioEvents = [];
+
     /** simple lifecycle flag; later phases add menu/playing/gameover */
     this.state = "playing";
+  }
+
+  /**
+   * Append an audio event tag for the browser audio bridge to drain this frame.
+   * No-op-friendly: pure bookkeeping, never touches Web Audio.
+   * @param {string} type one of the documented audio-event tags.
+   * @private
+   */
+  _emitAudio(type) {
+    this.audioEvents.push({ type });
+  }
+
+  /**
+   * Drain (return + clear) the queued audio events. Called once per frame by the
+   * browser audio bridge; in tests it lets assertions read what fired this tick.
+   * @returns {Array<{type:string}>}
+   */
+  drainAudioEvents() {
+    if (this.audioEvents.length === 0) return EMPTY_AUDIO_EVENTS;
+    const out = this.audioEvents;
+    this.audioEvents = [];
+    return out;
   }
 
   /**
@@ -294,6 +328,7 @@ export class World {
     const muzzle = fireMachineGun(this.gun, dt, firing, this.player, this.projectiles);
     if (muzzle.spawned > 0) {
       this.particles.muzzleBurst(muzzle.x, muzzle.y, this.rng);
+      this._emitAudio("gun"); // Phase 12: machine-gun SFX cue
     }
 
     // --- Spawning: the seeded director (Phase 5) replaces the debug spawner. ---
@@ -375,6 +410,11 @@ export class World {
         // Survivable wreck (free or paid): drop a wreck explosion and respawn the
         // interceptor at the start position so play continues.
         this.particles.explosion(this.player.x, this.player.y, this.rng);
+        this._emitAudio("explosion"); // Phase 12: wreck blast SFX
+        // AIDEV-NOTE: Phase 12 — when a wreck leaves the player running on the
+        // last spare car, sound the urgent low-cars alarm (spec §8). cars > 0
+        // here (gameOver was false), so 1 remaining == "low".
+        if (this.scoring.cars <= 1) this._emitAudio("lowCars");
         this.player.reset();
       }
     }
@@ -434,6 +474,7 @@ export class World {
         const died = enemy.damage(bullet.damage);
         if (died) {
           this.particles.explosion(enemy.x, enemy.y, this.rng);
+          this._emitAudio("explosion"); // Phase 12: enemy-death blast SFX
           // AIDEV-NOTE: route the kill through Scoring so a kill that crosses the
           // bonus threshold can bank spare cars (Phase 10). scoreValue 0 (Enforcer)
           // is a no-op there.
@@ -458,6 +499,10 @@ export class World {
         // banking) per spec §6. Replaces the old inline score math.
         this.scoring.civilianPenalty(this.config.civilians.scorePenalty);
         this.particles.explosion(civ.x, civ.y, this.rng);
+        // Phase 12: civilian destroyed -> blast + the harsh "you hit a civilian"
+        // warning cue (spec §8).
+        this._emitAudio("explosion");
+        this._emitAudio("civilianWarning");
         this.projectiles.kill(bullet);
         return true;
       },
@@ -500,6 +545,7 @@ export class World {
         this.projectiles.kill(hit.projectile);
         if (this.helicopter.dead) {
           this.particles.explosion(this.helicopter.x, this.helicopter.y, this.rng);
+          this._emitAudio("explosion"); // Phase 12: helicopter-death blast SFX
           this.scoring.addKill(this.config.helicopter.scoreValue);
         } else {
           this.particles.hitSpark(hit.projectile.x, hit.projectile.y, this.rng);
@@ -511,6 +557,7 @@ export class World {
     for (const hit of blastHits) {
       hit.target.lastHitBy = "bomb";
       this.particles.explosion(hit.bomb.x, hit.bomb.y, this.rng);
+      this._emitAudio("explosion"); // Phase 12: bomb-blast SFX
     }
   }
 
@@ -533,6 +580,11 @@ export class World {
     } else if (ev.kind === "setpiece") {
       const trigger = { name: ev.name, distance: this.distance };
       this.setpieces.push(trigger);
+      // AIDEV-NOTE: Phase 12 — the weapons-van milestone is the cue for the
+      // weapon-load jingle (spec §8). The van delivery/loading isn't wired into
+      // the World yet (later phase), so the appearance milestone is the honest,
+      // observable trigger point for the load SFX.
+      if (ev.name === "weaponsVan") this._emitAudio("weaponLoad");
       // AIDEV-NOTE: Phase 7 — the "helicopter" milestone spawns the Mad Bomber
       // above the player. One-shot guard: ignore the trigger if a heli is
       // already on-screen so a re-fired milestone never stacks two helis.
@@ -638,8 +690,12 @@ export class World {
     this.director.reset();
     this.weather.clear();
     this.setpieces = [];
+    this.audioEvents = [];
     this.state = "playing";
   }
 }
+
+/** Shared empty result so drainAudioEvents() allocates nothing on an idle tick. */
+const EMPTY_AUDIO_EVENTS = Object.freeze([]);
 
 export default World;

@@ -68,6 +68,13 @@ export class Game {
     this.gameCanvas = null;
     /** @type {import("../engine/loop.js").Loop|null} */
     this.loop = null;
+    /**
+     * Browser-only audio bridge (Phase 12). Wired via attachAudio() in main.js;
+     * null headless so tests run silently. Driven from the browser update() path
+     * AFTER the orchestration step, so it stays out of the unit-tested step().
+     * @type {import("../audio/bridge.js").AudioBridge|null}
+     */
+    this.audio = null;
   }
 
   // --- Headless orchestration -------------------------------------------------
@@ -186,6 +193,16 @@ export class Game {
   }
 
   /**
+   * Attach the browser audio bridge (Phase 12). Stored so the browser update()
+   * can drive it each frame and the "M" key can toggle mute. Headless tests
+   * never attach one, so the orchestration step() stays silent + pure.
+   * @param {import("../audio/bridge.js").AudioBridge} audio
+   */
+  attachAudio(audio) {
+    this.audio = audio;
+  }
+
+  /**
    * The browser update tick: sample the attached Input into a held snapshot + a
    * pressed edge set, run one orchestration step, then DRAIN the edge buffer so
    * each press fires exactly once. Wired into engine/loop.js by main.js.
@@ -199,10 +216,20 @@ export class Game {
     }
     const held = this.input.snapshot();
     const pressed = new Set();
-    for (const a of ["enter", "pause"]) {
+    for (const a of ["enter", "pause", "mute"]) {
       if (this.input.wasPressed(a)) pressed.add(a);
     }
+    // AIDEV-NOTE: Phase 12 — the "M" edge toggles global mute via the audio
+    // bridge. Handled here (browser path) BEFORE step() so the toggle is
+    // independent of the sim/flow; headless tests have no audio and skip it.
+    if (pressed.has("mute") && this.audio) this.audio.toggleMute();
+
     this.step(dt, { held, pressed });
+
+    // Drive the audio bridge AFTER the sim step so it drains this tick's audio
+    // events + tracks engine/heli state against the (just-updated) world + state.
+    if (this.audio) this.audio.update(this.world, this.machine.state);
+
     // Drain the edge buffer for the next frame (one press = one fire).
     this.input.consumePressed();
   }

@@ -12,7 +12,7 @@
 
 /**
  * Logical actions the game understands.
- * @typedef {"left"|"right"|"accel"|"brake"|"fire"|"special"|"pause"|"enter"} Action
+ * @typedef {"left"|"right"|"accel"|"brake"|"fire"|"special"|"pause"|"enter"|"mute"} Action
  */
 
 /**
@@ -36,6 +36,8 @@ export const DEFAULT_KEYMAP = Object.freeze({
   // Pause.
   KeyP: "pause",
   Escape: "pause",
+  // Mute toggle (spec §9). Edge-triggered via wasPressed in the audio bridge.
+  KeyM: "mute",
   // Start / confirm (spec §9): used by the game-flow state machine to begin a
   // run from the title screen and to restart after game over (core/game.js reads
   // it edge-triggered via wasPressed).
@@ -168,6 +170,7 @@ export class Input {
       special: this.isDown("special"),
       pause: this.isDown("pause"),
       enter: this.isDown("enter"),
+      mute: this.isDown("mute"),
     };
   }
 

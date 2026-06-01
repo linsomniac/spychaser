@@ -18,6 +18,10 @@ import { Game } from "./core/game.js";
 import { Renderer } from "./render/renderer.js";
 import { Screens } from "./render/screens.js";
 import { config } from "./data/config.js";
+import { AudioEngine } from "./audio/audio.js";
+import { Music } from "./audio/music.js";
+import { Sfx } from "./audio/sfx.js";
+import { AudioBridge } from "./audio/bridge.js";
 
 function boot() {
   const canvasEl = /** @type {HTMLCanvasElement|null} */ (
@@ -43,6 +47,18 @@ function boot() {
   game.attachInput(input);
   game.attachRender(gameCanvas, renderer, screens);
 
+  // --- Audio (Phase 12). The engine stays SILENT until the browser autoplay
+  // policy is satisfied: installGestureUnlock() arms one-shot listeners that
+  // create + resume the AudioContext on the first user gesture (key/click). The
+  // bridge couples the world's audio events + engine/heli state to Music + Sfx;
+  // it is headless-safe so it never throws before unlock. M toggles mute.
+  const audioEngine = new AudioEngine();
+  audioEngine.installGestureUnlock(window);
+  const music = new Music(audioEngine);
+  const sfx = new Sfx(audioEngine);
+  const audioBridge = new AudioBridge({ audio: audioEngine, music, sfx });
+  game.attachAudio(audioBridge);
+
   const loop = new Loop({
     step: config.FIXED_STEP,
     maxFrameTime: config.MAX_FRAME_TIME,
@@ -58,7 +74,18 @@ function boot() {
 
   // Expose for debugging in the console; harmless in production.
   // @ts-ignore
-  window.__spychaser = { game, loop, input, gameCanvas, renderer, screens };
+  window.__spychaser = {
+    game,
+    loop,
+    input,
+    gameCanvas,
+    renderer,
+    screens,
+    audioEngine,
+    music,
+    sfx,
+    audioBridge,
+  };
 }
 
 if (typeof document !== "undefined") {
