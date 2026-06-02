@@ -1,5 +1,9 @@
 # Spy Chaser
 
+[![Deploy to GitHub Pages](https://github.com/linsomniac/spychaser/actions/workflows/deploy.yml/badge.svg)](https://github.com/linsomniac/spychaser/actions/workflows/deploy.yml)
+
+**▶ [Play it online](https://linsomniac.github.io/spychaser/)**
+
 A top-down, Spy Hunter-style arcade chase game. Drive your weaponized car up an
 endless road, dodge and destroy enemy vehicles, and rack up a high score.
 
@@ -7,6 +11,10 @@ Built with vanilla JavaScript (ES modules) and the Canvas 2D API. No
 dependencies, no bundler, no build step.
 
 ## Run
+
+The latest build is published to GitHub Pages at
+<https://linsomniac.github.io/spychaser/> on every push to `main` (see
+`.github/workflows/deploy.yml`). To run it yourself:
 
 The game is pure static files served as ES modules, so it needs to be served
 over HTTP (opening `index.html` via `file://` will not work because browsers
