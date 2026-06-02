@@ -1,1 +1,5 @@
 .superpowers/
+
+# Local session / agent artifacts — never publish to the public repo.
+.remember/
+resume
