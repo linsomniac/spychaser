@@ -38,6 +38,10 @@ function makeFakeAudio() {
     muted: false,
     unlocked: true,
     toggleMuteCalls: 0,
+    // Mirrors AudioEngine.audible: a live, unlocked, un-muted engine.
+    get audible() {
+      return !this.muted && this.unlocked;
+    },
     toggleMute() {
       this.muted = !this.muted;
       this.toggleMuteCalls += 1;
@@ -180,4 +184,33 @@ test("bridge: a paused tick drains events but does not re-fire them on resume", 
   sfx.calls.length = 0;
   bridge.update(world, "playing");
   assert.ok(!sfx.calls.some((c) => c[0] === "explosion"), "no stale replay");
+});
+
+// --- Regression M2: starting/encountering loops while muted must re-arm --------
+// Bug: the bridge latched _playingAudioOn/_rotorOn true on the first PLAYING
+// frame regardless of audibility, while Sfx.start* no-op when muted. Un-muting
+// (M only ramps master gain) never re-entered the start branch, so a game begun
+// while muted stayed silent for the whole session. Fix: gate the START on
+// audibility so un-muting arms the engine hum + rotor.
+test("bridge: a game started while muted arms the engine hum on un-mute (M2)", () => {
+  const { bridge, audio, sfx, music } = makeBridge();
+  audio.muted = true; // muted before the run begins
+  const world = makeWorld();
+  bridge.update(world, "playing");
+  assert.ok(!sfx.calls.some((c) => c[0] === "startEngine"), "engine not armed while muted");
+  audio.muted = false; // player presses M
+  bridge.update(world, "playing");
+  assert.ok(sfx.calls.some((c) => c[0] === "startEngine"), "engine starts after un-mute");
+  assert.equal(music.playing, true);
+});
+
+test("bridge: a helicopter seen while muted gets its rotor on un-mute (M2)", () => {
+  const { bridge, audio, sfx } = makeBridge();
+  audio.muted = true;
+  const world = makeWorld({ helicopter: { dead: false } });
+  bridge.update(world, "playing");
+  assert.ok(!sfx.calls.some((c) => c[0] === "startRotor"), "rotor not armed while muted");
+  audio.muted = false;
+  bridge.update(world, "playing");
+  assert.ok(sfx.calls.some((c) => c[0] === "startRotor"), "rotor starts after un-mute");
 });

@@ -14,6 +14,7 @@ import {
   SONG,
   patternStep,
   stepDuration,
+  Music,
 } from "../src/audio/music.js";
 
 // --- Note / frequency math --------------------------------------------------
@@ -148,4 +149,56 @@ test("patternStep on a rest yields a non-note (null)", () => {
   assert.equal(noteToMidi(patternStep(pat, 1)), null);
   assert.equal(noteToMidi(patternStep(pat, 2)), null);
   assert.equal(noteToMidi(patternStep(pat, 0)), 60);
+});
+
+// --- #14: a short note's envelope must keep a non-negative sustain ------------
+// Regression for the lead voice whose release (0.08s) exceeded its note duration
+// (~0.0795s): the un-clamped sustain set-point landed BEFORE the attack peak,
+// collapsing the note to near-silence. We drive _playNote against a fake
+// AudioContext and assert the sustain plateau starts at/after the attack peak.
+function fakeGainNode() {
+  const calls = [];
+  return {
+    gain: {
+      calls,
+      setValueAtTime: (v, t) => calls.push(["set", v, t]),
+      exponentialRampToValueAtTime: (v, t) => calls.push(["ramp", v, t]),
+    },
+    connect() {},
+  };
+}
+
+test("music: a short note keeps a non-negative sustain plateau (#14)", () => {
+  const gainNodes = [];
+  const ctx = {
+    createOscillator: () => ({
+      type: "",
+      frequency: { setValueAtTime() {} },
+      connect() {},
+      start() {},
+      stop() {},
+    }),
+    createGain: () => {
+      const n = fakeGainNode();
+      gainNodes.push(n);
+      return n;
+    },
+  };
+  const audio = { ctx, musicBus: {}, now: () => 0 };
+  const m = new Music(audio);
+  const lead = SONG.voices ? SONG.voices.lead : null;
+  // Fall back to the known lead shape if SONG doesn't expose voices directly.
+  const voice = lead ?? { type: "sawtooth", gain: 0.16, hold: 0.7, attack: 0.006, release: 0.08 };
+
+  m._playNote(voice, 440, 0);
+
+  const env = gainNodes[0].gain.calls;
+  const dur = m.seq.stepDuration * voice.hold;
+  const attackPeak = Math.min(voice.attack, dur * 0.5); // when=0
+  const sustainSet = env.find((c) => c[0] === "set" && Math.abs(c[1] - voice.gain) < 1e-9);
+  assert.ok(sustainSet, "a sustain set-point at full gain exists");
+  assert.ok(
+    sustainSet[2] >= attackPeak - 1e-9,
+    `sustain (${sustainSet[2]}) must start at/after the attack peak (${attackPeak})`,
+  );
 });

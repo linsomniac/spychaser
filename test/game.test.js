@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { Game } from "../src/core/game.js";
 import { GameState } from "../src/core/states.js";
 import { config } from "../src/data/config.js";
+import { createSpecial } from "../src/systems/weapons.js";
 
 const dt = config.FIXED_STEP;
 
@@ -63,6 +64,34 @@ test("game: Enter on the title screen starts a run and the sim advances", () => 
   g.step(dt, { held: held(), pressed: pressed() });
   g.step(dt, { held: held(), pressed: pressed() });
   assert.ok(g.world.ticks >= 1, "world ticks while PLAYING");
+});
+
+// --- Special weapon (F/Shift) deploys through the orchestrator -----------------
+
+test("game: a 'special' edge while PLAYING deploys the loaded special", () => {
+  const g = makeGame();
+  g.step(dt, { held: held(), pressed: pressed("enter") }); // -> PLAYING
+  g.world.player.special = createSpecial("missiles");
+  const before = g.world.projectiles.activeCount;
+  g.step(dt, { held: held("special"), pressed: pressed("special") });
+  assert.ok(
+    g.world.projectiles.activeCount > before,
+    "the F/Shift edge fired the loaded special",
+  );
+  assert.equal(
+    g.world.player.special.charge,
+    config.weapons.specials.missiles.charge - 1,
+    "a charge was consumed",
+  );
+});
+
+test("game: a 'special' edge does nothing on the title screen", () => {
+  const g = makeGame();
+  // Pre-load a special onto the (frozen) world, then press special on ATTRACT.
+  g.world.player.special = createSpecial("missiles");
+  g.step(dt, { held: held("special"), pressed: pressed("special") });
+  assert.equal(g.world.projectiles.activeCount, 0, "no deploy while not PLAYING");
+  assert.equal(g.machine.state, GameState.ATTRACT);
 });
 
 // --- PLAYING <-> PAUSED via P/Esc ---------------------------------------------

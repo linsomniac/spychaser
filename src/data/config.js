@@ -88,6 +88,23 @@ export const config = Object.freeze({
     maxDamage: 100, // damage at which the car is wrecked
   }),
 
+  // --- Enemy combat damage to the player (Phase 10 completion, HYBRID model) ---
+  // AIDEV-NOTE: hybrid lethality (see project memory "enemy-damage-model").
+  // Catastrophic hits (bomb blast, rolling barrel, leaving the field) instantly
+  // wreck the car; chip hits (Switchblade slash, Road Lord bullets, rams) accrue
+  // toward player.maxDamage (100). Ramming is MUTUAL — it also removes ram
+  // tolerance from the enemy, which is the bulletproof Enforcer's spec kill
+  // route. A short post-respawn invulnerability prevents chain-death from
+  // clustered hazards. Applied in core/world.js collision resolution.
+  combat: Object.freeze({
+    slashDamage: 24, // chip per Switchblade tire-slash hit
+    bulletDamage: 16, // chip per Road Lord bullet that hits the player
+    ramDamage: 30, // chip to the player per ram contact
+    ramEnemyHp: 1, // ram tolerance removed from the rammed enemy per contact
+    ramInterval: 0.5, // min seconds between successive ram hits (per enemy)
+    respawnInvuln: 1.5, // seconds of i-frames after a respawn
+  }),
+
   // --- Boat mode (Phase 8, spec §6 "Water sections") ---
   // AIDEV-NOTE: On water the player swaps to a boat (entities/boat.js). The boat
   // shares the lateral position and forward speed of the car across the handoff
@@ -194,6 +211,7 @@ export const config = Object.freeze({
   // can't be shot dead).
   enemies: Object.freeze({
     spawnY: -70, // spawn just above the top edge, virtual px
+    wavePack: 3, // chasers spawned by an "enemyWave" set-piece (spec §6)
 
     standard: Object.freeze({
       width: 36,
@@ -229,9 +247,10 @@ export const config = Object.freeze({
       height: 74,
       hp: Infinity, // bullets do nothing
       bulletproof: true,
+      ramHp: 3, // ram-tolerance: rammed off the road after this many hits
       approachSpeed: 60,
       steerSpeed: 120,
-      scoreValue: 0, // cannot be killed by guns -> no kill points
+      scoreValue: 200, // awarded when finally rammed off the road
     }),
     // Road Lord: armed car that returns fire.
     roadLord: Object.freeze({
@@ -307,7 +326,7 @@ export const config = Object.freeze({
   helicopter: Object.freeze({
     width: 70,
     height: 52,
-    hp: 3, // missile hits required to destroy it (missile damage is 5; see note)
+    hp: 3, // missile HITS required to destroy it (each missile = 1 hit; see collision.js)
     entrySpeed: 130, // px/s descending while ENTERING
     hoverY: 130, // y it settles at once TRACKING, virtual px
     trackSpeed: 120, // px/s lateral chase of the player's x while TRACKING
@@ -437,9 +456,6 @@ export const config = Object.freeze({
     // banking threshold (bonusThreshold) reachable through play without
     // trivializing it (~20k px of survival nets ~1000 pts of distance score).
     distanceScorePerPx: 0.05, // points awarded per virtual px traveled
-    comboWindow: 2.5, // seconds to chain kills for a combo
-    comboMultiplierStep: 0.25, // each chained kill adds this to the multiplier
-    comboMaxMultiplier: 5.0,
 
     // --- Bonus-time / spare-car mechanic ---
     startCars: 3, // spare cars in reserve at the start of a run

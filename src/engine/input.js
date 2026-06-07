@@ -67,6 +67,13 @@ export class Input {
     this._onKeyDown = (e) => this._handleKeyDown(e);
     this._onKeyUp = (e) => this._handleKeyUp(e);
     this._onBlur = () => this.clear();
+    // AIDEV-NOTE: window 'blur' misses some focus losses that leave keys "stuck"
+    // down (Ctrl+Tab between tabs, OS lock screen, mobile backgrounding) — those
+    // fire visibilitychange but not always blur. Clear held keys when the page
+    // goes hidden so the car doesn't keep steering/firing on its own (#11).
+    this._onVisibility = () => {
+      if (typeof document !== "undefined" && document.hidden) this.clear();
+    };
   }
 
   /** Attach DOM listeners. Returns a disposer that detaches them. */
@@ -75,10 +82,13 @@ export class Input {
     target.addEventListener("keydown", this._onKeyDown);
     target.addEventListener("keyup", this._onKeyUp);
     target.addEventListener("blur", this._onBlur);
+    const doc = typeof document !== "undefined" ? document : null;
+    if (doc) doc.addEventListener("visibilitychange", this._onVisibility);
     return () => {
       target.removeEventListener("keydown", this._onKeyDown);
       target.removeEventListener("keyup", this._onKeyUp);
       target.removeEventListener("blur", this._onBlur);
+      if (doc) doc.removeEventListener("visibilitychange", this._onVisibility);
     };
   }
 

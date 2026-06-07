@@ -40,19 +40,26 @@ export function overlayForState(state) {
 /**
  * Build the formatted game-over summary the panel renders: the run's score and
  * the (possibly just-beaten) high score, both arcade-formatted, plus a NEW
- * RECORD flag. A new record is a positive score that meets or beats the stored
- * high score (the cold-start 0/0 case is explicitly NOT a record). Pure: takes
- * plain numbers, returns plain display data.
- * @param {{score?:number, hiScore?:number}} scoring
+ * RECORD flag. When the Scoring object carries an explicit `newRecord` flag
+ * (latched by saveHighScore via a strict `>`), that is authoritative — it lets
+ * the panel tell a genuine record from a TIE with the existing high score (which
+ * look identical once hiScore has been bumped to score). Falls back to the
+ * score>=hiScore heuristic only when no flag is supplied (plain-data callers /
+ * tests). The cold-start 0/0 case is explicitly NOT a record. Pure function.
+ * @param {{score?:number, hiScore?:number, newRecord?:boolean}} scoring
  * @returns {{score:string, hiScore:string, newRecord:boolean}}
  */
 export function gameOverSummary(scoring = {}) {
   const score = Math.max(0, Math.floor(scoring.score || 0));
   const hiScore = Math.max(0, Math.floor(scoring.hiScore || 0));
+  const newRecord =
+    typeof scoring.newRecord === "boolean"
+      ? scoring.newRecord && score > 0
+      : score > 0 && score >= hiScore;
   return {
     score: formatScore(score),
     hiScore: formatScore(hiScore),
-    newRecord: score > 0 && score >= hiScore,
+    newRecord,
   };
 }
 

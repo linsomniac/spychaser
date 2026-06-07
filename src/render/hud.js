@@ -228,7 +228,7 @@ export class Hud {
     ctx.fillText(box.label, x + 7, y + 17);
 
     if (box.loaded) {
-      // Charge pips along the bottom edge of the box.
+      // Remaining-charge count ("x{n}") in the top-right corner of the box.
       ctx.textAlign = "right";
       ctx.fillStyle = palette.hudText;
       ctx.font = "700 9px system-ui, sans-serif";

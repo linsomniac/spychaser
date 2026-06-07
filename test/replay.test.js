@@ -66,18 +66,27 @@ const REPLAY_TICKS = 1800;
 const GOLDEN = Object.freeze({
   ticks: 1800,
   state: "playing", // survives the full window (does not reach game over)
-  score: 1760,
-  cars: 3,
-  sector: 5,
-  distance: 20233.866666666607,
-  playerX: 230.0545317981161,
-  playerY: 396.00000000000057,
+  // AIDEV-NOTE: re-recorded when the combat loop was completed (Phase 6/10):
+  //   * the weapons-van set-piece spawns a live van and the gentle replay tucks
+  //     in and loads a random special — its loadRandomSpecial(rng) draw shifts
+  //     the stream;
+  //   * enemy attacks are now lethal (hybrid model); and
+  //   * the "enemyWave" set-piece now spawns a burst of chasers (spec §6), which
+  //     the gentle script fights — netting more kills (score up) but spending
+  //     cars (down to 1) and perturbing the distance/sector profile.
+  // The set-piece schedule and survival (state "playing") are unchanged.
+  score: 3443,
+  cars: 1,
+  sector: 4,
+  distance: 19887.600000000053,
+  playerX: 210,
+  playerY: 396.0351973975679,
   playerSpeed: 420,
   playerSurface: "road",
   playerDamage: 0,
   setpieceNames: ["weaponsVan", "enemyWave", "weather", "weaponsVan", "water", "enemyWave"],
   // The PRNG value drawn immediately AFTER the run — pins the whole stream.
-  rngCursor: 0.7148432109970599,
+  rngCursor: 0.8976506097242236,
 });
 
 /** Tight float tolerance: robust to last-ULP FP noise, catches real drift. */

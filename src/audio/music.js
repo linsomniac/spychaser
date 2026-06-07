@@ -348,10 +348,16 @@ export class Music {
     osc.type = voice.type;
     osc.frequency.setValueAtTime(freq, when);
     // Click-free attack/release envelope.
+    // AIDEV-NOTE: clamp attack+release to the note's own duration so the sustain
+    // plateau is never negative. For short notes (e.g. the lead's 0.08s release
+    // vs a 0.0795s note) the un-clamped release start would precede the attack
+    // peak, collapsing the sustain to zero — the note would barely sound (#14).
+    const attack = Math.min(voice.attack, dur * 0.5);
+    const release = Math.min(voice.release, Math.max(0, dur - attack));
     env.gain.setValueAtTime(0.0001, when);
-    env.gain.exponentialRampToValueAtTime(voice.gain, when + voice.attack);
+    env.gain.exponentialRampToValueAtTime(voice.gain, when + attack);
     const stopAt = when + dur;
-    env.gain.setValueAtTime(voice.gain, Math.max(when + voice.attack, stopAt - voice.release));
+    env.gain.setValueAtTime(voice.gain, Math.max(when + attack, stopAt - release));
     env.gain.exponentialRampToValueAtTime(0.0001, stopAt);
     osc.connect(env);
     env.connect(bus);

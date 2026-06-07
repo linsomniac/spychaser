@@ -59,7 +59,14 @@ export class AudioBridge {
     }
 
     // 2) Continuous PLAYING-only loops: engine hum + music transport.
-    if (playing && !this._playingAudioOn) {
+    // AIDEV-NOTE: gate the START latch on audibility. Sfx.startEngine() no-ops
+    // while muted/locked, but M only ramps the master gain — it never re-enters
+    // this branch. Without the audible gate, starting (or being locked) while
+    // muted would latch _playingAudioOn=true with nothing actually started,
+    // leaving the hum dead for the whole session; gating it re-arms the loops on
+    // un-mute / first-gesture unlock. We do NOT stop on mute — the master gain
+    // silences a running loop, so it resumes cleanly when un-muted.
+    if (playing && !this._playingAudioOn && this.audio.audible) {
       this.sfx.startEngine();
       this.music.start();
       this._playingAudioOn = true;
@@ -75,8 +82,10 @@ export class AudioBridge {
     }
 
     // 3) Helicopter rotor: on iff a live heli is present AND we are playing.
+    // Same audible gate as the engine hum so a heli that appears while muted
+    // gets its rotor when the player un-mutes (see note above).
     const wantRotor = playing && !!world.helicopter && !world.helicopter.dead;
-    if (wantRotor && !this._rotorOn) {
+    if (wantRotor && !this._rotorOn && this.audio.audible) {
       this.sfx.startRotor();
       this._rotorOn = true;
     } else if (!wantRotor && this._rotorOn) {

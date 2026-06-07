@@ -15,7 +15,18 @@ import { config } from "../data/config.js";
 import { Road } from "../systems/road.js";
 import { Player } from "../entities/player.js";
 import { Projectiles } from "../entities/projectiles.js";
-import { MachineGun, fireMachineGun } from "../systems/weapons.js";
+import {
+  MachineGun,
+  fireMachineGun,
+  consumeSpecial,
+  specialEffect,
+} from "../systems/weapons.js";
+import { createWeaponsVan, updateVanLoad } from "../entities/weaponsVan.js";
+import {
+  createHazard,
+  tickHazard,
+  applyHazardToEnemy,
+} from "../entities/hazards.js";
 import { ParticleSystem } from "../render/effects.js";
 import { createEnemy, Bomb, HELI_PHASE } from "../entities/enemies.js";
 import { Civilian } from "../entities/civilian.js";
@@ -125,6 +136,26 @@ export class World {
     this.bombs = [];
     /** Total bombs dropped this run (observability for tests/SFX). */
     this._bombsDropped = 0;
+
+    /**
+     * Live weapons vans (Phase 6 set-piece). Spawned by the director's
+     * "weaponsVan" milestone; tucking into a van's rear ramp loads a random
+     * special into the player. Plain array; culled when offscreen/spent.
+     * @type {import("../entities/weaponsVan.js").WeaponsVan[]}
+     */
+    this.vans = [];
+    /**
+     * Deployed field hazards (oil slick / smoke screen) dropped by the player's
+     * rear specials. They scroll with the road, age out, and spin/blind enemies.
+     * @type {import("../entities/hazards.js").Hazard[]}
+     */
+    this.hazards = [];
+    /**
+     * Cooldown gate (seconds) between special-weapon deployments. Counts down in
+     * update(); fireSpecial() is a no-op while it is positive.
+     * @type {number}
+     */
+    this._specialCooldown = 0;
 
     /**
      * Countdown until the next boat-wake splash (Phase 8). Counts down only
@@ -269,6 +300,9 @@ export class World {
     if (this.state !== "playing") return;
     this.time += dt;
     this.ticks += 1;
+    if (this._specialCooldown > 0) {
+      this._specialCooldown = Math.max(0, this._specialCooldown - dt);
+    }
 
     // --- Weather (Phase 9): advance any active fog/ice episode (timer-only). ---
     // AIDEV-NOTE: updated BEFORE the player so the car reads this tick's ice
@@ -311,10 +345,14 @@ export class World {
     this.distance += this.speed * dt;
 
     // --- Scoring (Phase 10): age the bonus-time window + credit new distance. ---
-    // AIDEV-NOTE: advance the bonus timer FIRST so a wreck this tick is judged
-    // against the up-to-date window state, then award points for the distance
-    // covered THIS tick only (distance - already-scored). Distance scoring can by
-    // itself cross the banking threshold while the window is open.
+    // AIDEV-NOTE: a driving-wreck this tick is judged in _handleCrash() ABOVE,
+    // i.e. against the START-of-tick bonus window; this scoring.update(dt) ages
+    // the timer afterward. The effect is at most a single fixed step (~1/60 s) of
+    // generosity at the exact expiry boundary (a wreck on the expiry tick still
+    // gets the free replacement) — acceptable and simpler than re-ordering the
+    // crash check. Then award points for the NEW distance covered THIS tick only
+    // (distance - already-scored); distance scoring alone can cross the banking
+    // threshold while the window is open.
     this.scoring.update(dt);
     const newDistance = this.distance - this._scoredDistance;
     if (newDistance > 0) {
@@ -350,6 +388,30 @@ export class World {
 
     // --- Civilians. ---
     for (const c of this.civilians) c.update(dt, this);
+
+    // --- Weapons van set-piece (Phase 6): drift, load handshake, cull. ---
+    // AIDEV-NOTE: the van drives down like traffic; tucking into its rear ramp
+    // for van.loadFrames continuous steps loads ONE random special. The handshake
+    // (updateVanLoad) is pure + RNG-injected (world RNG) so it stays replay-exact.
+    // Delivery — not mere appearance — sounds the weapon-load jingle (spec §8).
+    for (const van of this.vans) {
+      van.update(dt);
+      const loaded = updateVanLoad(van, this.player, this.rng);
+      if (loaded) {
+        this.player.special = loaded;
+        this._emitAudio("weaponLoad");
+      }
+    }
+    this.vans = this.vans.filter((v) => v.active && !v.isOffscreen(this.height));
+
+    // --- Deployed field hazards (Phase 6): scroll with the road, age out, and
+    // spin/blind any enemy that drives over them. Uses the live scroll speed so
+    // the slick/cloud stays pinned to the asphalt. ---
+    for (const h of this.hazards) {
+      tickHazard(h, dt, this.speed);
+      for (const e of this.enemies) applyHazardToEnemy(h, e);
+    }
+    this.hazards = this.hazards.filter((h) => h.active);
 
     // --- Helicopter set-piece (Phase 7): update + realize bomb drops. ---
     if (this.helicopter) {
@@ -388,6 +450,52 @@ export class World {
     ) {
       this.helicopter = null;
     }
+
+    // --- Persist the high score on the tick the run ends (M3). ---
+    // AIDEV-NOTE: _endRun() flips state to "gameover" mid-tick (from _handleCrash,
+    // before this tick's distance + kills are credited). Saving here — at the END
+    // of the ending tick — captures those final-tick points. Runs exactly once:
+    // the next tick returns early at the top of update() (state !== "playing").
+    if (this.state === "gameover") this.scoring.saveHighScore();
+  }
+
+  /**
+   * Deploy the player's loaded special weapon (spec §6, F/Shift). Front specials
+   * (missiles) spawn forward-firing projectiles into the player bullet pool;
+   * rear specials (oil/smoke) deploy a field hazard behind the car. Consumes one
+   * charge and unloads the slot when depleted; honors the special cooldown.
+   * @returns {boolean} true iff a special was deployed this call.
+   */
+  fireSpecial() {
+    const special = this.player.special;
+    if (!special || !(special.charge > 0) || this._specialCooldown > 0) {
+      return false;
+    }
+    const effect = specialEffect(special, this.player);
+    if (effect.type === "projectiles") {
+      for (const m of effect.projectiles) {
+        this.projectiles.spawn({
+          x: m.x,
+          y: m.y,
+          vx: m.vx,
+          vy: m.vy,
+          w: m.width,
+          h: m.height,
+          category: m.category,
+          kind: m.kind,
+          damage: m.damage,
+          ttl: this.config.weapons.bullet.ttl,
+        });
+      }
+    } else if (effect.type === "hazard") {
+      this.hazards.push(
+        createHazard(effect.hazard, effect.x, effect.y, { config: this.config }),
+      );
+    }
+    consumeSpecial(special);
+    if (!(special.charge > 0)) this.player.special = null;
+    this._specialCooldown = this.config.weapons.special.cooldown;
+    return true;
   }
 
   /**
@@ -416,6 +524,9 @@ export class World {
         // here (gameOver was false), so 1 remaining == "low".
         if (this.scoring.cars <= 1) this._emitAudio("lowCars");
         this.player.reset();
+        // Brief post-respawn invulnerability so the fresh car cannot be instantly
+        // re-wrecked by a hazard/enemy it respawns on top of (spec §6 hybrid).
+        this.player.invuln = this.config.combat.respawnInvuln;
       }
     }
     // After reset(), player.crashed is false again, so the edge flag follows it.
@@ -429,7 +540,10 @@ export class World {
    * @private
    */
   _endRun() {
-    this.scoring.saveHighScore();
+    // AIDEV-NOTE: do NOT persist the high score here. _handleCrash runs before
+    // this tick's distance + kills are credited, so saving now would drop the
+    // final-tick points (M3). The save happens at the END of update() once all
+    // scoring for the ending tick is in.
     this.state = "gameover";
   }
 
@@ -444,10 +558,11 @@ export class World {
     } else if (ev.type === "barrel") {
       this.hostiles.spawnBarrel(ev.x, ev.y, this.config);
     } else if (ev.type === "slash") {
-      // AIDEV-NOTE: the slash is an instantaneous hit on the player. Full
-      // damage/lives consequences arrive in Phase 10; for now mark contact so
-      // SFX/HUD can react and the behavior is observable.
-      this.player.lastHitBy = "switchblade";
+      // AIDEV-NOTE: the Switchblade slash is an instantaneous chip hit on the
+      // player's tires (spec §6 hybrid model). It accrues toward maxDamage, so a
+      // sustained alongside attack eventually wrecks the car. applyDamage() is a
+      // no-op while the player has post-respawn i-frames.
+      this.player.applyDamage(this.config.combat.slashDamage);
     }
   }
 
@@ -462,6 +577,8 @@ export class World {
    * @private
    */
   _resolveCollisions() {
+    // Clear per-tick contact markers so they reflect THIS tick only (no latch).
+    this.player.touchingCivilian = false;
     const bullets = this.projectiles.toArray();
 
     // Player bullets vs enemies. One-shot: a bullet that hits stops there.
@@ -469,9 +586,16 @@ export class World {
       bullets,
       this.enemies,
       (bullet, enemy) => {
-        // AIDEV-NOTE: bulletproof enemies (Enforcer) absorb the round but take
-        // no damage. damage() returns true only on a killing blow.
-        const died = enemy.damage(bullet.damage);
+        // AIDEV-NOTE: bulletproof enemies (Enforcer) absorb plain bullets, but a
+        // MISSILE is a special — spec §6 says the Enforcer can be "hit with a
+        // special". Missiles bypass armor via ram() (one hit per missile, same as
+        // the heli takes hp missile-hits), while bullets use normal damage().
+        const isMissile =
+          bullet.category === "playerMissile" || bullet.kind === "missile";
+        const died =
+          isMissile && enemy.bulletproof
+            ? enemy.ram(1)
+            : enemy.damage(bullet.damage);
         if (died) {
           this.particles.explosion(enemy.x, enemy.y, this.rng);
           this._emitAudio("explosion"); // Phase 12: enemy-death blast SFX
@@ -508,20 +632,36 @@ export class World {
       },
     );
 
-    // Player vs enemies (ram). Reported via player.lastHitBy; consequences P10.
+    // Player vs enemies (ram, spec §6): MUTUAL. A ram removes ram-tolerance from
+    // the enemy — the bulletproof Enforcer's only kill route — and chips the
+    // player. A per-enemy cooldown keeps a sustained overlap from draining both
+    // every tick. A rammed-to-death enemy explodes + scores (culled by the
+    // dead-filter below).
     const playerGroup = [this.player];
     collidePairs(playerGroup, this.enemies, (player, enemy) => {
-      player.lastHitBy = enemy.type;
+      if (enemy._ramCd <= 0) {
+        enemy._ramCd = this.config.combat.ramInterval;
+        const died = enemy.ram(this.config.combat.ramEnemyHp);
+        if (died) {
+          this.particles.explosion(enemy.x, enemy.y, this.rng);
+          this._emitAudio("explosion");
+          this.scoring.addKill(enemy.def.scoreValue);
+        }
+        player.applyDamage(this.config.combat.ramDamage);
+      }
       // Don't consume the player; allow contact with multiple enemies.
       return false;
     });
 
-    // Player vs barrels + enemy bullets (hostiles pool). Filter by category.
+    // Player vs barrels + enemy bullets (hostiles pool). Hybrid lethality: a
+    // rolling barrel is catastrophic (instant wreck); an enemy bullet is a chip
+    // hit toward maxDamage. Both are consumed on contact.
     collidePairs(
       this.hostiles.toArray(),
       playerGroup,
       (hostile, player) => {
-        player.lastHitBy = hostile.category;
+        if (hostile.category === "barrel") player.wreck();
+        else player.applyDamage(this.config.combat.bulletDamage);
         this.hostiles.kill(hostile);
         return true; // consume the hostile
       },
@@ -555,7 +695,7 @@ export class World {
     // Detonated bombs blast the player. Each bomb blasts once (blastApplied).
     const blastHits = resolveBombBlast(this.bombs, playerGroup);
     for (const hit of blastHits) {
-      hit.target.lastHitBy = "bomb";
+      hit.target.wreck(); // a bomb blast is catastrophic -> instant wreck
       this.particles.explosion(hit.bomb.x, hit.bomb.y, this.rng);
       this._emitAudio("explosion"); // Phase 12: bomb-blast SFX
     }
@@ -580,11 +720,29 @@ export class World {
     } else if (ev.kind === "setpiece") {
       const trigger = { name: ev.name, distance: this.distance };
       this.setpieces.push(trigger);
-      // AIDEV-NOTE: Phase 12 — the weapons-van milestone is the cue for the
-      // weapon-load jingle (spec §8). The van delivery/loading isn't wired into
-      // the World yet (later phase), so the appearance milestone is the honest,
-      // observable trigger point for the load SFX.
-      if (ev.name === "weaponsVan") this._emitAudio("weaponLoad");
+      // AIDEV-NOTE: Phase 6 — the weapons-van milestone spawns a live van ahead
+      // of the player (entering from the top like traffic). Driving into its rear
+      // ramp loads a random special; the load jingle (spec §8) fires on actual
+      // delivery in update(), not on mere appearance.
+      if (ev.name === "weaponsVan") {
+        this.vans.push(
+          createWeaponsVan(this.player.x, -this.config.van.height, {
+            config: this.config,
+          }),
+        );
+      }
+      // AIDEV-NOTE: spec §6 "intensifying enemy waves" — the milestone spawns a
+      // tight burst of chasers ON TOP of the director's steady traffic. Lanes are
+      // drawn from the world RNG via the director's lane picker so the wave stays
+      // deterministic/replay-stable.
+      if (ev.name === "enemyWave") {
+        const half = this.config.enemies.switchblade.width / 2;
+        const count = this.config.enemies.wavePack ?? 3;
+        for (let k = 0; k < count; k++) {
+          const x = this.director.pickLane(this.road, this.distance, half, this.rng);
+          this.enemies.push(createEnemy("switchblade", x, { config: this.config }));
+        }
+      }
       // AIDEV-NOTE: Phase 7 — the "helicopter" milestone spawns the Mad Bomber
       // above the player. One-shot guard: ignore the trigger if a heli is
       // already on-screen so a re-fired milestone never stacks two helis.
@@ -681,6 +839,10 @@ export class World {
     this.helicopter = null;
     this.bombs = [];
     this._bombsDropped = 0;
+    this.vans = [];
+    this.hazards = [];
+    this._specialCooldown = 0;
+    this.player.special = null;
     this._wakeTimer = 0;
     // AIDEV-NOTE: reset() restores a fresh run's score/lives/bonus state but KEEPS
     // the loaded high score (scoring.reset() preserves hiScore).

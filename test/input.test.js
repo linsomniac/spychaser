@@ -18,7 +18,11 @@ function up(input, code) {
 
 test("input: default keymap covers spec section 9 actions", () => {
   const actions = new Set(Object.values(DEFAULT_KEYMAP));
-  for (const a of ["left", "right", "accel", "brake", "fire", "special", "pause"]) {
+  // The FULL spec §9 control set — incl. mute (M) and start/confirm (Enter),
+  // which were previously unguarded (TG3).
+  for (const a of [
+    "left", "right", "accel", "brake", "fire", "special", "pause", "mute", "enter",
+  ]) {
     assert.ok(actions.has(a), `missing action mapping: ${a}`);
   }
 });
@@ -143,4 +147,36 @@ test("input: unknown keys are ignored", () => {
   down(i, "KeyZ");
   const snap = i.snapshot();
   assert.ok(Object.values(snap).every((v) => v === false));
+});
+
+// --- #11: a hidden page clears held keys (focus loss without 'blur') ----------
+test("input: going hidden (visibilitychange) releases held keys", () => {
+  const i = new Input();
+  down(i, "ArrowLeft");
+  down(i, "Space");
+  assert.ok(i.isDown("left") && i.isDown("fire"), "keys held before hiding");
+  // Simulate the page becoming hidden and invoke the visibility handler.
+  const saved = globalThis.document;
+  globalThis.document = { hidden: true };
+  try {
+    i._onVisibility();
+  } finally {
+    if (saved === undefined) delete globalThis.document;
+    else globalThis.document = saved;
+  }
+  assert.ok(!i.isDown("left") && !i.isDown("fire"), "held keys cleared when hidden");
+});
+
+test("input: a still-visible page keeps held keys (visibilitychange no-op)", () => {
+  const i = new Input();
+  down(i, "ArrowLeft");
+  const saved = globalThis.document;
+  globalThis.document = { hidden: false };
+  try {
+    i._onVisibility();
+  } finally {
+    if (saved === undefined) delete globalThis.document;
+    else globalThis.document = saved;
+  }
+  assert.ok(i.isDown("left"), "keys remain held while visible");
 });

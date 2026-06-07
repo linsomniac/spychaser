@@ -75,6 +75,12 @@ export class Enemy {
     this.y = cfg.enemies.spawnY;
     this.hp = def.hp;
     this.bulletproof = !!def.bulletproof;
+    // AIDEV-NOTE: ram tolerance (spec §6). Ramming bypasses bulletproof so the
+    // Enforcer (hp Infinity) can still be "rammed off the road"; defaults to hp
+    // for ordinary cars so a ram is roughly as lethal as gunfire. _ramCd gates
+    // successive ram hits so a sustained overlap doesn't drain it every tick.
+    this.ramHp = def.ramHp ?? def.hp;
+    this._ramCd = 0;
     /** true while live; collision/cull use this. */
     this.active = true;
     /** set true the frame it dies; world spawns an explosion + scores + culls. */
@@ -122,6 +128,7 @@ export class Enemy {
     const impaired = this.spinTimer > 0 || this.blindTimer > 0;
     if (this.spinTimer > 0) this.spinTimer = Math.max(0, this.spinTimer - dt);
     if (this.blindTimer > 0) this.blindTimer = Math.max(0, this.blindTimer - dt);
+    if (this._ramCd > 0) this._ramCd = Math.max(0, this._ramCd - dt);
     if (impaired) return [];
     // Steer toward the player's lane.
     this.x = approach(this.x, world.player.x, this.def.steerSpeed * dt);
@@ -144,6 +151,24 @@ export class Enemy {
     if (this.bulletproof) return false;
     this.hp -= amount;
     if (this.hp <= 0) {
+      this.dead = true;
+      this.active = false;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Apply RAM damage from a player collision. Unlike damage(), this bypasses
+   * bulletproof (a ram is physical, not a bullet) so the Enforcer can be rammed
+   * off the road (spec §6). Returns true if this ram destroyed the enemy.
+   * @param {number} [amount=1]
+   * @returns {boolean} died this ram
+   */
+  ram(amount = 1) {
+    if (this.dead) return false;
+    this.ramHp -= amount;
+    if (this.ramHp <= 0) {
       this.dead = true;
       this.active = false;
       return true;

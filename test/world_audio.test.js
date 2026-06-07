@@ -101,10 +101,18 @@ test("World: a wreck that drops cars low queues a 'lowCars' alarm", () => {
   assert.ok(w.audioEvents.some((e) => e.type === "lowCars"));
 });
 
-test("World: the weapons-van set-piece queues a 'weaponLoad' cue", () => {
+test("World: loading a special from the van queues a 'weaponLoad' cue", () => {
   const w = new World({ seed: 1, storage: null });
-  // Directly realize a weaponsVan set-piece (bypassing the director schedule).
+  // The set-piece spawns a van but does NOT sound the jingle on mere appearance.
   w._realizeSpawn({ kind: "setpiece", name: "weaponsVan" });
+  assert.equal(w.audioEvents.length, 0, "no cue until the special is loaded");
+  // Tuck the player into the van's rear ramp and let it deliver: the jingle
+  // fires on actual load (spec §8 weapon-load jingle).
+  const van = w.vans[0];
+  van.x = w.player.x;
+  van.y = w.player.y - van.height / 2;
+  van.loadProgress = van.loadFrames - 1;
+  w.update(1 / 60);
   assert.ok(w.audioEvents.some((e) => e.type === "weaponLoad"));
 });
 

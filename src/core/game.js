@@ -114,6 +114,10 @@ export class Game {
         // held Enter/pause never bleeds into the player), then follow the world
         // into game-over if it ended this tick.
         this.world.setInput(this._playerInput(held));
+        // Special weapon (spec §9, F/Shift): edge-triggered so one press = one
+        // deploy. Fired before the sim step so the missile/hazard is part of this
+        // tick. A no-op when nothing is loaded or the cooldown is active.
+        if (pressed.has("special")) this.world.fireSpecial();
         this.world.update(dt);
         if (this.world.state === "gameover") {
           this.machine.gameOver();
@@ -216,7 +220,7 @@ export class Game {
     }
     const held = this.input.snapshot();
     const pressed = new Set();
-    for (const a of ["enter", "pause", "mute"]) {
+    for (const a of ["enter", "pause", "mute", "special"]) {
       if (this.input.wasPressed(a)) pressed.add(a);
     }
     // AIDEV-NOTE: Phase 12 — the "M" edge toggles global mute via the audio

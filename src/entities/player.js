@@ -126,6 +126,20 @@ export class Player {
     this.crashed = false;
     /** last classified surface, exposed for renderer/audio/HUD. */
     this.surface = SURFACE_ROAD;
+    /**
+     * Post-respawn invulnerability remaining, seconds. While > 0 the car ignores
+     * all combat damage (chip + instant wreck) so it cannot be chain-wrecked the
+     * moment it respawns into a busy field. Counts down in update().
+     * @type {number}
+     */
+    this.invuln = 0;
+    /**
+     * Whether the car is overlapping a civilian THIS tick (set by the world's
+     * collision pass, cleared at the start of each pass). A hook for SFX/HUD; not
+     * a latch — see core/world.js _resolveCollisions().
+     * @type {boolean}
+     */
+    this.touchingCivilian = false;
 
     // --- Boat mode (Phase 8) ---
     // AIDEV-NOTE: The player is the SAME entity in both modes (so collision,
@@ -156,6 +170,34 @@ export class Player {
     return this.mode === MODE_BOAT;
   }
 
+  /** True while the post-respawn invulnerability window is active. */
+  get invulnerable() {
+    return this.invuln > 0;
+  }
+
+  /**
+   * Apply chip combat damage (Switchblade slash, Road Lord bullet, ram) toward
+   * maxDamage. No-op while invulnerable or already crashed; wrecks the car when
+   * the accrued damage reaches maxDamage. (spec §6 hybrid lethality.)
+   * @param {number} amount damage points
+   */
+  applyDamage(amount) {
+    if (this.crashed || this.invulnerable || !(amount > 0)) return;
+    const max = this.config.player.maxDamage;
+    this.damage = Math.min(max, this.damage + amount);
+    if (this.damage >= max) this.crashed = true;
+  }
+
+  /**
+   * Instantly wreck the car (bomb blast, rolling barrel — catastrophic hits in
+   * the hybrid model). No-op while invulnerable or already crashed.
+   */
+  wreck() {
+    if (this.crashed || this.invulnerable) return;
+    this.damage = this.config.player.maxDamage;
+    this.crashed = true;
+  }
+
   /** Axis-aligned bounds for collision (later phases). */
   get bounds() {
     return {
@@ -178,6 +220,8 @@ export class Player {
    *   omitted/clear weather keeps the original dry handling.
    */
   update(dt, input, road, distance, weather) {
+    // Post-respawn invulnerability decays in real time, regardless of state.
+    if (this.invuln > 0) this.invuln = Math.max(0, this.invuln - dt);
     // A crashed vehicle is inert: it ignores input and just coasts to a stop.
     if (this.crashed) {
       const tune = this.isBoat ? this.config.boat : this.config.player;
@@ -349,6 +393,8 @@ export class Player {
     this.speed = 0;
     this.damage = 0;
     this.crashed = false;
+    this.invuln = 0;
+    this.touchingCivilian = false;
     this.surface = SURFACE_ROAD;
     this.mode = MODE_CAR;
     this.iceVx = 0;

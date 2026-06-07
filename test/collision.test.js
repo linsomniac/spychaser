@@ -111,3 +111,25 @@ test("collidePairs: callback returning true stops further pairing for that A", (
   });
   assert.deepEqual(hits, ["e0"]);
 });
+
+// --- Regression: in-loop swap-removal of a consumed groupA element ------------
+// onHit consuming `a` often despawns it via a pool kill() that swap-removes the
+// element from the SAME array collidePairs is iterating (Projectiles.toArray()
+// returns the live array). collidePairs must not skip the element swapped into
+// the just-vacated slot.
+test("collidePairs: swap-removing a consumed element skips nothing", () => {
+  // Two bullets, each overlapping its own target so both should register a hit.
+  const groupA = [entity(0, 0, 10, 10, { id: "b1" }), entity(0, 0, 10, 10, { id: "b2" })];
+  const groupB = [entity(0, 0, 10, 10, { id: "t" })];
+  const hitIds = [];
+  collidePairs(groupA, groupB, (a) => {
+    hitIds.push(a.id);
+    // Simulate Projectiles.kill(): swap-with-last removal of `a` from groupA.
+    const i = groupA.indexOf(a);
+    const last = groupA.length - 1;
+    if (i !== last) groupA[i] = groupA[last];
+    groupA.pop();
+    return true; // `a` consumed
+  });
+  assert.deepEqual(hitIds.sort(), ["b1", "b2"], "both bullets registered a hit");
+});

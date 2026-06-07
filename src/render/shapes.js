@@ -77,11 +77,15 @@ export function drawVehicle(ctx, cx, cy, w, h, style, opts = {}) {
   ctx.scale(1, facing);
 
   // Soft drop shadow (spec §7) — a darker rounded rect offset down/right.
+  // AIDEV-NOTE: the local frame is Y-flipped by ctx.scale(1, facing), so for
+  // oncoming traffic (facing=-1) a fixed +y would cast the shadow UPWARD. Scale
+  // the y offset by `facing` so the shadow always falls DOWN on screen (one fixed
+  // light source) regardless of which way the vehicle faces.
   if (opts.shadow) {
     ctx.save();
     ctx.globalAlpha = 0.22;
     ctx.fillStyle = "#000000";
-    roundedRectPath(ctx, 2.5, 3.5, w, h, radius);
+    roundedRectPath(ctx, 2.5, 3.5 * facing, w, h, radius);
     ctx.fill();
     ctx.restore();
   }

@@ -176,11 +176,16 @@ export class Renderer {
    * @param {import("../core/world.js").World} world
    */
   drawEntities(world) {
+    // Phase 6: deployed field hazards (oil/smoke) are flat decals on the asphalt
+    // — draw them UNDER the vehicles so cars ride over the slick/cloud.
+    if (world.hazards) for (const h of world.hazards) h.draw(this.ctx);
     // AIDEV-NOTE: Y-sort all vehicles together so closer cars overlap farther
-    // ones (painter's order). Player + enemies + civilians share the list.
+    // ones (painter's order). Player + enemies + civilians + vans share the list.
     const drawables = [world.player];
     if (world.enemies) for (const e of world.enemies) drawables.push(e);
     if (world.civilians) for (const c of world.civilians) drawables.push(c);
+    // Phase 6: the weapons van sorts with the ground traffic.
+    if (world.vans) for (const v of world.vans) drawables.push(v);
     // Phase 7: bombs (and their blasts) sort with the ground traffic.
     if (world.bombs) for (const b of world.bombs) drawables.push(b);
     drawables.sort((a, b) => a.y - b.y);

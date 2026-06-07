@@ -182,3 +182,48 @@ test("world: ending a run persists a new high score to storage", () => {
 });
 
 export default null;
+
+// --- Regression M3: the run-ending tick's points reach the persisted high score
+// Bug: _endRun() saved the high score from _handleCrash (mid-tick) BEFORE that
+// same tick's distance/kills were credited, so final-tick points were lost from
+// localStorage even though the game-over panel showed them. Fix: save at the END
+// of the ending tick.
+function memStorage() {
+  const m = new Map();
+  return {
+    getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem: (k, v) => m.set(k, String(v)),
+  };
+}
+
+test("world: the run-ending tick's kill is included in the saved high score (M3)", () => {
+  const store = memStorage();
+  const w = new World({ seed: 3, storage: store });
+  w.director.update = () => [];
+  // Arrange a guaranteed game-over wreck this tick: last car + bonus window over.
+  w.scoring.cars = 1;
+  w.scoring.bonusRemaining = 0;
+  // A killable enemy with a bullet on top of it -> the kill scores THIS tick,
+  // during collision resolution (which runs AFTER the crash/_endRun check).
+  const e = createEnemy("switchblade", w.player.x, { config });
+  e.y = w.player.y - 80;
+  e.hp = 1;
+  w.enemies.push(e);
+  w.projectiles.spawn({ x: e.x, y: e.y, vx: 0, vy: 0, ttl: 5 });
+  // Force the run to end this tick.
+  w.player.crashed = true;
+  w.update(dt);
+
+  assert.equal(w.state, "gameover");
+  assert.ok(
+    w.score >= config.enemies.switchblade.scoreValue,
+    "the final-tick kill scored",
+  );
+  // A fresh world reading the same storage must see the FULL final score.
+  const reloaded = new World({ seed: 1, storage: store });
+  assert.equal(
+    reloaded.scoring.hiScore,
+    w.score,
+    "persisted high score includes the run-ending tick's points",
+  );
+});

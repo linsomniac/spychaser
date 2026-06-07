@@ -54,6 +54,17 @@ test("screens: a non-record score is not flagged", () => {
   assert.equal(s.newRecord, false);
 });
 
+test("screens: an explicit newRecord flag wins over the score>=hi heuristic (L1)", () => {
+  // A tie with the existing record: score === hiScore (post-save) but the run
+  // did NOT set a record, so saveHighScore latched newRecord=false. The banner
+  // must stay off even though score >= hiScore.
+  const tie = gameOverSummary({ score: 5000, hiScore: 5000, newRecord: false });
+  assert.equal(tie.newRecord, false, "a tie shows no NEW RECORD banner");
+  // A genuine record carries newRecord=true.
+  const rec = gameOverSummary({ score: 5000, hiScore: 5000, newRecord: true });
+  assert.equal(rec.newRecord, true);
+});
+
 test("screens: a zero score is never a record (cold-start guard)", () => {
   const s = gameOverSummary({ score: 0, hiScore: 0 });
   assert.equal(s.newRecord, false);

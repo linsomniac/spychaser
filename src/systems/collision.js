@@ -63,8 +63,16 @@ function isInactive(ent) {
  * @param {(a:object, b:object) => boolean} [filter] optional category gate.
  */
 export function collidePairs(groupA, groupB, onHit, filter) {
-  for (let i = 0; i < groupA.length; i++) {
-    const a = groupA[i];
+  // AIDEV-NOTE: iterate a SNAPSHOT of groupA. onHit commonly despawns the
+  // consumed element via a pool kill() that swap-removes it from this very array
+  // (Projectiles.toArray() returns the live _active array). Iterating the live
+  // array would skip whatever element got swapped into the vacated slot. Elements
+  // killed mid-pass are still skipped via the isInactive() guard below. groupB is
+  // only ever marked inactive (never swap-removed) during a pass — keep that
+  // convention for any new callers.
+  const items = groupA.length ? groupA.slice() : groupA;
+  for (let i = 0; i < items.length; i++) {
+    const a = items[i];
     if (isInactive(a)) continue;
     for (let j = 0; j < groupB.length; j++) {
       const b = groupB[j];
@@ -125,7 +133,10 @@ export function resolveMissilesVsHelicopter(projectiles, heli) {
     if (!isMissile(p)) continue; // bullets pass through (immune heli)
     if (!aabbOverlap(p.bounds, heli.bounds)) continue;
     p.active = false; // consume the missile
-    heli.missileHit(p.damage ?? 1);
+    // AIDEV-NOTE: each missile counts as ONE hit against the heli so config
+    // helicopter.hp reads as "missile hits required" (its damage:5 is for tough
+    // GROUND enemies). Passing p.damage here would one-shot an hp:3 heli.
+    heli.missileHit(1);
     hits.push({ projectile: p, helicopter: heli });
     if (heli.dead) break;
   }

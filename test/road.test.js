@@ -239,3 +239,16 @@ test("road: reset reseeds deterministically", () => {
   // And it actually changed from the original seed's road.
   assert.notDeepEqual(before, reseeded);
 });
+
+// --- #17: the boathouse bands must fit inside the water stretch ----------------
+// A water stretch carves a boathouse band out of EACH end (entry + exit); if
+// boathouseLength*2 >= waterLength the two bands overlap and there is no open
+// water channel between them. Guard the tunables so a future edit can't silently
+// violate the invariant (it is otherwise unenforced in code).
+test("config: boathouse bands fit inside a water stretch (boathouseLength*2 < waterLength)", () => {
+  const r = config.road;
+  assert.ok(
+    r.boathouseLength * 2 < r.waterLength,
+    `boathouse bands (${r.boathouseLength}*2) must leave open water inside waterLength (${r.waterLength})`,
+  );
+});

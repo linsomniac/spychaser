@@ -84,6 +84,8 @@ export class Scoring {
     this.bonusSuspended = false;
     /** True once the threshold has banked spare cars (one-shot per run). */
     this.banked = false;
+    /** Whether the LAST saveHighScore() set a genuine new record (strict >). */
+    this.newRecord = false;
 
     /**
      * Sub-point distance accumulator. Distance points come in tiny fractional
@@ -224,6 +226,11 @@ export class Scoring {
    */
   saveHighScore() {
     const isRecord = this.score > this.hiScore;
+    // AIDEV-NOTE: latch the record decision (strict >) so the game-over panel can
+    // tell a genuine NEW RECORD from a tie with the existing high score. Once
+    // hiScore has been bumped to score, a tie and a record are indistinguishable
+    // from score/hiScore alone — hence the explicit flag (L1).
+    this.newRecord = isRecord;
     if (isRecord) this.hiScore = this.score;
     if (!this.storage) return isRecord;
     try {

@@ -99,26 +99,15 @@ export class Road {
   }
 
   /**
-   * Deterministic water flag for a distance. Each waterPeriod-length window has
-   * at most one water stretch; whether it exists is a seeded hash of the window
-   * index, so the answer is a pure function of (seed, distance).
-   * @param {number} distance
-   * @returns {boolean}
-   * @private
-   */
-  _waterAt(distance) {
-    return this.waterSectionAt(distance) !== null;
-  }
-
-  /**
    * Bounds of the water stretch containing `distance`, or null if dry land.
    * Each waterPeriod-length window has at most one water stretch placed at its
    * tail end; whether it exists is a seeded hash of the window index, so the
    * answer is a pure function of (seed, distance) — no sampling-order state.
    *
-   * AIDEV-NOTE: This is the single source of truth for water geometry. _waterAt
-   * and boathouseAt both delegate here so the water flag and the boathouse
-   * markers can never disagree about where the stretch begins/ends.
+   * AIDEV-NOTE: This is the single source of truth for water geometry. sampleAt()
+   * (which derives the water flag) and boathouseAt() both delegate here so the
+   * water flag and the boathouse markers can never disagree about where the
+   * stretch begins/ends.
    * @param {number} distance
    * @returns {WaterSection|null}
    */

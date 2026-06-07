@@ -72,29 +72,41 @@ test("score never goes negative on a civilian penalty", () => {
   assert.equal(w.score, 0);
 });
 
-test("an enemy bullet hitting the player is reported and consumed", () => {
+test("an enemy bullet hitting the player chips its damage and is consumed", () => {
   const w = freshWorld();
   w.hostiles.spawnEnemyBullet(w.player.x, w.player.y, 0, 0);
   w.update(1 / 60);
-  assert.equal(w.player.lastHitBy, "enemyBullet");
+  // Hybrid model: a bullet is a chip hit (not an instant wreck).
+  assert.equal(w.player.damage, config.combat.bulletDamage);
+  assert.equal(w.player.crashed, false);
   assert.equal(w.hostiles.activeCount, 0);
 });
 
-test("a barrel hitting the player is reported and consumed", () => {
+test("a barrel hitting the player wrecks it and is consumed", () => {
   const w = freshWorld();
   w.hostiles.spawnBarrel(w.player.x, w.player.y);
-  w.update(1 / 60);
-  assert.equal(w.player.lastHitBy, "barrel");
+  const cars0 = w.scoring.cars;
+  w.update(1 / 60); // collision wrecks the car + consumes the barrel
+  assert.equal(w.player.crashed, true, "barrel wrecked the car");
   assert.equal(w.hostiles.activeCount, 0);
+  // Hybrid model: the lives machine registers the wreck on the next tick.
+  w.update(1 / 60);
+  assert.ok(
+    w.player.invulnerable || w.scoring.cars < cars0,
+    "the wreck was registered (respawn / car spent)",
+  );
 });
 
-test("ramming an Enforcer reports contact (player not removed)", () => {
+test("ramming an Enforcer damages both (mutual ram, player not removed)", () => {
   const w = freshWorld();
   const enf = createEnemy("enforcer", w.player.x, { config });
   enf.y = w.player.y; // overlapping
   w.enemies.push(enf);
+  const ramHp0 = enf.ramHp;
   w.update(1 / 60);
-  assert.equal(w.player.lastHitBy, "enforcer");
+  assert.ok(w.player.damage > 0, "the player took ram damage");
+  assert.ok(enf.ramHp < ramHp0, "the Enforcer lost ram tolerance");
+  assert.ok(w.enemies.includes(w.player) === false); // player isn't an enemy
 });
 
 test("player vs civilian is pass-through (reported, no damage/removal)", () => {
@@ -105,6 +117,19 @@ test("player vs civilian is pass-through (reported, no damage/removal)", () => {
   w.update(1 / 60);
   assert.equal(w.player.touchingCivilian, true);
   assert.ok(w.civilians.includes(civ)); // not destroyed by contact
+});
+
+test("the enemyWave set-piece spawns a burst of chasers (spec §6, #13)", () => {
+  const w = freshWorld();
+  const before = w.enemies.length;
+  w._realizeSpawn({ kind: "setpiece", name: "enemyWave" });
+  assert.equal(
+    w.enemies.length - before,
+    config.enemies.wavePack,
+    "the milestone spawns an actual wave, not just a marker",
+  );
+  // The trigger is still recorded for the HUD/observability.
+  assert.ok(w.setpieces.some((s) => s.name === "enemyWave"));
 });
 
 test("a Road Lord spawns a hostile bullet into the hostiles pool", () => {
