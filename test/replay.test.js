@@ -66,27 +66,27 @@ const REPLAY_TICKS = 1800;
 const GOLDEN = Object.freeze({
   ticks: 1800,
   state: "playing", // survives the full window (does not reach game over)
-  // AIDEV-NOTE: re-recorded when the combat loop was completed (Phase 6/10):
-  //   * the weapons-van set-piece spawns a live van and the gentle replay tucks
-  //     in and loads a random special — its loadRandomSpecial(rng) draw shifts
-  //     the stream;
-  //   * enemy attacks are now lethal (hybrid model); and
-  //   * the "enemyWave" set-piece now spawns a burst of chasers (spec §6), which
-  //     the gentle script fights — netting more kills (score up) but spending
-  //     cars (down to 1) and perturbing the distance/sector profile.
-  // The set-piece schedule and survival (state "playing") are unchanged.
-  score: 3443,
+  // AIDEV-NOTE: re-recorded for the Phase 13 balance/cleanup pass:
+  //   * director.rampDistance was lowered 60000 -> 30000, so difficulty and the
+  //     spawn cadence escalate roughly twice as fast — the gentle stay-alive
+  //     script now meets denser traffic, shifting score/sector/position and the
+  //     whole RNG stream; and
+  //   * the vestigial "water" director set-piece was removed (water stretches are
+  //     emitted by the road sampler, not the director), so it no longer appears
+  //     in the schedule and its removed RNG draws shift everything downstream.
+  // The set-piece schedule (minus water) and survival (state "playing") are intact.
+  score: 2201,
   cars: 1,
-  sector: 4,
-  distance: 19887.600000000053,
-  playerX: 210,
-  playerY: 396.0351973975679,
-  playerSpeed: 420,
+  sector: 5,
+  distance: 20027.17777777778,
+  playerX: 270,
+  playerY: 570.0938759285715,
+  playerSpeed: 34.666666666666664,
   playerSurface: "road",
   playerDamage: 0,
-  setpieceNames: ["weaponsVan", "enemyWave", "weather", "weaponsVan", "water", "enemyWave"],
+  setpieceNames: ["weaponsVan", "enemyWave", "weather", "weaponsVan", "enemyWave"],
   // The PRNG value drawn immediately AFTER the run — pins the whole stream.
-  rngCursor: 0.8976506097242236,
+  rngCursor: 0.06791844707913697,
 });
 
 /** Tight float tolerance: robust to last-ULP FP noise, catches real drift. */

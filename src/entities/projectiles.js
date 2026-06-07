@@ -20,7 +20,8 @@
 //   "playerBullet" — player machine-gun rounds, travel UP (vy < 0).
 //   "enemyBullet"  — Road Lord rounds, travel DOWN (vy > 0).
 //   "barrel"       — Barrel Dumper barrels, roll DOWN and ACCELERATE (ay > 0),
-//                    using a circular hitbox (radius) instead of the rect bounds.
+//                    spawned from a configured radius (their AABB is a square of
+//                    side 2*radius); player contact uses that AABB like any other.
 // Acceleration (ax, ay) is integrated each tick; bullets leave them 0 so their
 // behavior is unchanged. resetBullet() restores all fields so a recycled slot
 // never carries stale barrel state into a player round.
@@ -44,7 +45,9 @@ function makeBullet() {
     ay: 0,
     w: B.width,
     h: B.height,
-    // Circular hitbox radius for barrels; 0 means "use the rect bounds".
+    // Bounding radius for round projectiles (barrels); their w/h are set to a
+    // 2*radius square at spawn, so collidePairs' AABB test stays accurate. 0 for
+    // rectangular bullets. (Circle-vs-box math is used only for bomb blasts.)
     radius: 0,
     ttl: 0,
     age: 0,
@@ -237,11 +240,6 @@ export class Projectiles {
    */
   toArray() {
     return this._active;
-  }
-
-  /** AABB top-left bounds for a bullet record (center-based position). */
-  static boundsOf(b) {
-    return { x: b.x - b.w / 2, y: b.y - b.h / 2, w: b.w, h: b.h };
   }
 
   /** Release every live bullet (e.g. on restart). */

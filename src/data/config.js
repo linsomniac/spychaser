@@ -145,10 +145,10 @@ export const config = Object.freeze({
       ttl: 1.4, // seconds before despawn
     }),
     special: Object.freeze({
-      // F or Shift. Big effect, limited charges.
-      startCharges: 2,
-      radius: 220, // blast radius, virtual px
-      damage: 10,
+      // AIDEV-NOTE: only `cooldown` is live — core/world.js reads it to gate
+      // consecutive special deployments. The former startCharges/radius/damage
+      // fields were a pre-arsenal design that the per-kind `specials.*` blocks
+      // below superseded; they were removed as dead config.
       cooldown: 0.6, // seconds between specials
     }),
 
@@ -212,22 +212,6 @@ export const config = Object.freeze({
   enemies: Object.freeze({
     spawnY: -70, // spawn just above the top edge, virtual px
     wavePack: 3, // chasers spawned by an "enemyWave" set-piece (spec §6)
-
-    standard: Object.freeze({
-      width: 36,
-      height: 64,
-      hp: 1,
-      speed: 180, // closing/relative speed, virtual px/s
-      scoreValue: 100,
-    }),
-    heavy: Object.freeze({
-      width: 44,
-      height: 72,
-      hp: 4,
-      speed: 120,
-      scoreValue: 300,
-      fireCooldown: 1.2,
-    }),
 
     // Switchblade: pulls alongside the player and slashes its tires.
     switchblade: Object.freeze({
@@ -357,14 +341,15 @@ export const config = Object.freeze({
   // Spawn cadence shrinks (gets denser) as scroll `distance` ramps from 0 toward
   // rampDistance. See systems/director.js.
   director: Object.freeze({
-    // Retained from Phase 4 (debug spawner is gone, but other code may read it).
-    initialSpawnInterval: 1.6, // seconds between spawns at start
-
     // Cadence: seconds between spawn DECISIONS. Lerps from maxInterval (distance
     // 0) toward minInterval (at/after rampDistance) — difficulty escalation.
     maxInterval: 2.4, // slowest cadence, at the start of a run
     minInterval: 0.65, // fastest cadence, deep into a run
-    rampDistance: 60000, // virtual px over which cadence ramps max -> min
+    // AIDEV-NOTE: Phase 13 retune — lowered 60000 -> 30000 so the cadence
+    // escalation (and the helicopter milestone at firstAt 20000) is actually
+    // reached within a normal run; at 60000 difficulty only peaked after ~88 s of
+    // full-throttle play, past the 60 s bonus window.
+    rampDistance: 30000, // virtual px over which cadence ramps max -> min
     warmupDistance: 700, // no enemies until the player has driven this far
 
     // Per spawn decision: probability the vehicle is a civilian (vs an enemy).
@@ -387,12 +372,14 @@ export const config = Object.freeze({
 
     // Set-pieces fire at distance milestones, each on its own spacing so they
     // don't all stack. firstAt = first trigger distance; spacing = distance
-    // between repeats; jitter = seeded +/- distance wobble. Names are consumed by
-    // later phases (van/heli/water/weather).
+    // between repeats; jitter = seeded +/- distance wobble. Names are realized by
+    // core/world.js _realizeSpawn (weaponsVan / enemyWave / helicopter / weather).
+    // AIDEV-NOTE: water is intentionally NOT a director set-piece — water
+    // stretches are emitted deterministically by the road sampler (see the
+    // road.water* tunables above), so there is no "water" milestone to realize.
     setpieces: Object.freeze({
       weaponsVan: Object.freeze({ firstAt: 3000, spacing: 9000, jitter: 1200 }),
       enemyWave: Object.freeze({ firstAt: 6000, spacing: 11000, jitter: 1500 }),
-      water: Object.freeze({ firstAt: 15000, spacing: 26000, jitter: 2000 }),
       weather: Object.freeze({ firstAt: 9000, spacing: 18000, jitter: 2000 }),
       helicopter: Object.freeze({ firstAt: 20000, spacing: 22000, jitter: 2500 }),
     }),
@@ -462,12 +449,6 @@ export const config = Object.freeze({
     bonusWindow: 60, // seconds the free-replacement window stays open
     bonusThreshold: 10000, // points that, crossed in-window, bank spare cars
     bonusSpareCars: 3, // spare cars banked when the threshold is crossed
-  }),
-
-  // --- Pickups ---
-  pickups: Object.freeze({
-    spawnInterval: 12, // seconds between pickup spawns
-    despawnTtl: 9, // seconds a pickup lingers on the road
   }),
 });
 

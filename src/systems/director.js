@@ -2,9 +2,10 @@
 //
 // The spawn director (spec §6 "Set-pieces / progression", §10). It schedules
 // enemy/civilian traffic by distance — difficulty escalating as the run goes on
-// — and queues set-pieces (weapons van, enemy waves, water, weather, helicopter)
-// at distance milestones. Everything is driven by the seeded world RNG, so the
-// same seed yields the same schedule.
+// — and queues set-pieces (weapons van, enemy waves, weather, helicopter) at
+// distance milestones. Everything is driven by the seeded world RNG, so the same
+// seed yields the same schedule. (Water stretches are NOT scheduled here; the
+// road sampler emits them deterministically — see systems/road.js.)
 //
 // AIDEV-NOTE: This module is PURE LOGIC, decoupled from Canvas / raf / the
 // projectile pools (spec §5). `update(dt, ctx)` advances internal timers from the
@@ -16,7 +17,7 @@
 // Event shapes returned from update():
 //   { kind: "enemy",    type, x }        // enemy type key + lateral spawn center
 //   { kind: "civilian", x }              // lateral spawn center
-//   { kind: "setpiece", name }           // milestone name (van/wave/water/...)
+//   { kind: "setpiece", name }           // milestone name (van/wave/weather/...)
 
 import { config } from "../data/config.js";
 import { ENEMY_TYPES } from "../entities/enemies.js";
