@@ -14,7 +14,7 @@
 import { config } from "../data/config.js";
 import { palette } from "../data/palette.js";
 import { aabbOverlap } from "../systems/collision.js";
-import { loadRandomSpecial } from "../systems/weapons.js";
+import { loadRandomSpecial, createSpecial } from "../systems/weapons.js";
 
 export class WeaponsVan {
   /**
@@ -136,20 +136,23 @@ export function inRamp(v, player) {
 }
 
 /**
- * Advance the van's load handshake for one step. Returns a freshly loaded random
- * special when delivery completes, else null.
+ * Advance the van's load handshake for one step. Returns a freshly loaded special
+ * when delivery completes, else null.
  *
  *   - not in ramp        -> reset progress, return null
  *   - in ramp, building  -> bump progress, return null
- *   - in ramp, complete  -> mark delivered, return loadRandomSpecial(rng)
+ *   - in ramp, complete  -> mark delivered; return createSpecial(forceKind) if a
+ *                           kind is forced (NO rng drawn), else loadRandomSpecial(rng)
  *   - already delivered  -> return null (one payload per van)
  *
  * @param {WeaponsVan} v
  * @param {{x:number,y:number,width:number,height:number}} player
  * @param {{pick:Function}} rng seeded RNG (engine/rng.js createRng)
+ * @param {string|null} [forceKind] when set, deliver exactly this special kind
+ *   without drawing the random kind from rng (spec §4.5 first-load guarantee).
  * @returns {object|null} a loaded special descriptor, or null
  */
-export function updateVanLoad(v, player, rng) {
+export function updateVanLoad(v, player, rng, forceKind = null) {
   if (v.delivered || !v.active) return null;
   if (!inRamp(v, player)) {
     v.loadProgress = 0;
@@ -158,7 +161,7 @@ export function updateVanLoad(v, player, rng) {
   v.loadProgress += 1;
   if (v.loadProgress >= v.loadFrames) {
     v.delivered = true;
-    return loadRandomSpecial(rng);
+    return forceKind ? createSpecial(forceKind) : loadRandomSpecial(rng);
   }
   return null;
 }

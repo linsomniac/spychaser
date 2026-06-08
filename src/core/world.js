@@ -173,6 +173,15 @@ export class World {
     this._heliCooldown = 0;
 
     /**
+     * Whether the run's FIRST special has been delivered yet (spec §4.5). The
+     * first van delivery is always `missiles` (drawn with NO kind RNG) so a player
+     * who engages the van system has missiles in hand for the first helicopter;
+     * subsequent loads stay random.
+     * @type {boolean}
+     */
+    this._firstSpecialDelivered = false;
+
+    /**
      * Countdown until the next boat-wake splash (Phase 8). Counts down only
      * while in boat mode; reset to the cadence interval on each emission. Kept
      * on the world (not the player) so the splash uses the world RNG and stays
@@ -422,9 +431,13 @@ export class World {
     // Delivery — not mere appearance — sounds the weapon-load jingle (spec §8).
     for (const van of this.vans) {
       van.update(dt);
-      const loaded = updateVanLoad(van, this.player, this.rng);
+      // First delivery of the run is guaranteed missiles (no kind RNG); later
+      // deliveries are random (spec §4.5).
+      const forceKind = this._firstSpecialDelivered ? null : "missiles";
+      const loaded = updateVanLoad(van, this.player, this.rng, forceKind);
       if (loaded) {
         this.player.special = loaded;
+        this._firstSpecialDelivered = true;
         this._emitAudio("weaponLoad");
       }
     }
@@ -943,6 +956,7 @@ export class World {
     this.hazards = [];
     this._specialCooldown = 0;
     this._heliCooldown = 0;
+    this._firstSpecialDelivered = false;
     this.player.special = null;
     this._wakeTimer = 0;
     // AIDEV-NOTE: reset() restores a fresh run's score/lives/bonus state but KEEPS

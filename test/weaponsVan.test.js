@@ -91,6 +91,17 @@ test("updateVanLoad delivers a random special after enough steps", () => {
   assert.equal(v.delivered, true);
 });
 
+test("updateVanLoad with a forced kind delivers that kind and draws NO rng", () => {
+  const v = createWeaponsVan(100, 50, { loadFrames: 1 });
+  const z = rampZone(v);
+  const player = fakePlayer(z.x + z.w / 2, z.y + z.h / 2);
+  const rng = createRng(99);
+  const before = rng.seed();
+  const special = updateVanLoad(v, player, rng, "missiles");
+  assert.equal(special.kind, "missiles", "forced kind delivered");
+  assert.equal(rng.seed(), before, "forced delivery must not advance the RNG");
+});
+
 test("updateVanLoad delivers at most once per van", () => {
   const v = createWeaponsVan(100, 50, { loadFrames: 1 });
   const z = rampZone(v);
