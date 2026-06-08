@@ -10,8 +10,8 @@
 // AIDEV-NOTE: this run is chosen to actually CROSS all three. Seed 1 with a
 // dead-simple straight-throttle script (no steering, so the car never weaves
 // itself off-road) survives the bonus window AND reaches: an ICE episode
-// (~tick 888), the HELICOPTER milestone (~tick 1979), and BOAT mode at a water
-// stretch (~tick 2611), ending the run still alive and afloat. We assert both:
+// (~tick 888), the HELICOPTER milestone (~tick 1964), and BOAT mode at a water
+// stretch (~tick 2596), ending the run still alive and afloat. We assert both:
 //   1. latched booleans proving each mechanic was entered during the run, and
 //   2. the exact deterministic end-state + rngCursor (same contract as the
 //      original golden) — re-record from output if an intentional change shifts
@@ -42,10 +42,10 @@ function scriptedInput() {
 const GOLDEN = Object.freeze({
   ticks: 2700,
   state: "playing", // still alive at the end of the run
-  score: 6437,
-  cars: 1,
+  score: 3307,
+  cars: 2,
   sector: 7,
-  distance: 29998.59999999892,
+  distance: 30156.73333333224,
   playerX: 270,
   playerY: 396.00000000000057,
   playerSpeed: 360, // boat top speed — the run ends afloat
@@ -56,7 +56,7 @@ const GOLDEN = Object.freeze({
   everHelicopter: true,
   everBoat: true,
   // Whole-stream tripwire, drawn immediately after the run.
-  rngCursor: 0.2012614975683391,
+  rngCursor: 0.6028620158322155,
 });
 
 const EPS = 1e-6;
