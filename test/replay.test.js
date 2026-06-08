@@ -69,8 +69,10 @@ const GOLDEN = Object.freeze({
   // AIDEV-NOTE: re-recorded for the 2026-06 gameplay-fixes pass (concurrent cap,
   // gentler ramp, soft separation, heli wait-out/cooldown, guaranteed first
   // missiles, ricochet feedback). Every one of those shifts the seeded stream;
-  // the run still survives the window. Re-record from _record_replay.mjs if an
-  // intentional change shifts these again.
+  // the run still survives the window. To re-record after an intentional change:
+  // run this seed + scriptedInput for REPLAY_TICKS in a tiny headless script
+  // (same body as runReplay) and print snapshot(world) — then paste the fields
+  // here. The re-recorded run MUST still end with state "playing".
   score: 2211,
   cars: 3,
   sector: 5,
