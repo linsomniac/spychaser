@@ -58,6 +58,37 @@ export function approach(value, target, step) {
 }
 
 /**
+ * Soft separation pass (spec §4.3). Pure geometry, NO RNG: for each pair of
+ * active enemies whose bodies overlap vertically AND are laterally close, push
+ * them apart by `push * dt * 0.5` each along sign(x_i - x_j). Equal x breaks the
+ * tie by array index (lower index goes left) so it is fully deterministic. This
+ * prevents direct stacking while allowing side-by-side flanking.
+ * @param {Array<{x:number,y:number,width:number,height:number,active:boolean,dead:boolean}>} enemies
+ * @param {number} dt seconds
+ * @param {{config?: typeof config, clampX?: (x:number, e:object)=>number}} [opts]
+ *   clampX keeps a pushed enemy on the road (the world injects a road-aware
+ *   clamp); defaults to identity for pure tests.
+ */
+export function separateEnemies(enemies, dt, opts = {}) {
+  const cfg = (opts.config ?? config).enemies.separation;
+  const clampX = opts.clampX ?? ((x) => x);
+  const list = enemies.filter((e) => e.active && !e.dead);
+  const step = cfg.push * dt * 0.5;
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    for (let j = i + 1; j < list.length; j++) {
+      const b = list[j];
+      if (Math.abs(a.y - b.y) >= (a.height + b.height) / 2 + cfg.marginY) continue;
+      if (Math.abs(a.x - b.x) >= (a.width + b.width) / 2 + cfg.marginX) continue;
+      // Lower index (a) goes left when exactly aligned.
+      const dir = a.x === b.x ? -1 : Math.sign(a.x - b.x);
+      a.x = clampX(a.x + dir * step, a);
+      b.x = clampX(b.x - dir * step, b);
+    }
+  }
+}
+
+/**
  * Base ground enemy. Subclasses override `behave(dt, world)` to add attacks.
  */
 export class Enemy {

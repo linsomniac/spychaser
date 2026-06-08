@@ -28,7 +28,13 @@ import {
   applyHazardToEnemy,
 } from "../entities/hazards.js";
 import { ParticleSystem } from "../render/effects.js";
-import { createEnemy, Bomb, HELI_PHASE } from "../entities/enemies.js";
+import {
+  createEnemy,
+  Bomb,
+  HELI_PHASE,
+  separateEnemies,
+  ENEMY_TYPES,
+} from "../entities/enemies.js";
 import { Civilian } from "../entities/civilian.js";
 import {
   collidePairs,
@@ -387,6 +393,13 @@ export class World {
       for (const ev of events) this._realizeEnemyEvent(ev);
     }
 
+    // Soft separation (spec §4.3): nudge overlapping enemies apart (pure geometry,
+    // no RNG), clamped to the road at each enemy's row.
+    separateEnemies(this.enemies, dt, {
+      config: this.config,
+      clampX: (x, e) => this._clampEnemyToRoad(x, e),
+    });
+
     // --- Civilians. ---
     for (const c of this.civilians) c.update(dt, this);
 
@@ -703,6 +716,59 @@ export class World {
   }
 
   /**
+   * Clamp an enemy's x to the road body at its current screen row (used by the
+   * separation pass so a nudge never pushes a car off the asphalt). Pure.
+   * @param {number} x
+   * @param {{y:number, width:number}} enemy
+   * @returns {number}
+   * @private
+   */
+  _clampEnemyToRoad(x, enemy) {
+    const worldDist = this.distance + (this.height - enemy.y);
+    const s = this.road.sampleAt(worldDist);
+    const half = enemy.width / 2;
+    const lo = s.leftEdge + half;
+    const hi = s.rightEdge - half;
+    if (hi <= lo) return s.centerX;
+    return x < lo ? lo : x > hi ? hi : x;
+  }
+
+  /**
+   * Pick a non-overlapping spawn x for a new enemy (spec §4.3): if `x` overlaps
+   * an active enemy in the spawn y-band, step along the road band by a fixed
+   * stride (0, +d, -d, +2d, -2d, ...) to the first clear slot. Pure: draws NO RNG
+   * so the seeded stream is untouched by this de-overlap.
+   * @param {number} x director-chosen lateral center
+   * @param {number} width new enemy width
+   * @param {number} height new enemy height
+   * @param {number} sampleDistance road row to sample (top of field)
+   * @returns {number}
+   * @private
+   */
+  _deoverlapEnemyX(x, width, height, sampleDistance) {
+    const sep = this.config.enemies.separation;
+    const spawnY = this.config.enemies.spawnY;
+    const s = this.road.sampleAt(sampleDistance);
+    const lo = s.leftEdge + width / 2;
+    const hi = s.rightEdge - width / 2;
+    if (hi <= lo) return x;
+    const maxW = ENEMY_TYPES.reduce((m, t) => Math.max(m, this.config.enemies[t].width), 0);
+    const stride = maxW / 2 + sep.marginX;
+    const near = this.enemies.filter(
+      (e) => e.active && !e.dead && Math.abs(e.y - spawnY) < (e.height + height) / 2 + sep.marginY,
+    );
+    const clear = (cx) =>
+      !near.some((e) => Math.abs(cx - e.x) < (width + e.width) / 2 + sep.marginX);
+    const offsets = [0];
+    for (let k = 1; k <= 4; k++) offsets.push(k * stride, -k * stride);
+    for (const off of offsets) {
+      const cand = Math.max(lo, Math.min(hi, x + off));
+      if (clear(cand)) return cand;
+    }
+    return Math.max(lo, Math.min(hi, x)); // no clear slot; clamp on-road
+  }
+
+  /**
    * Realize one director event into the world: spawn an enemy/civilian into its
    * live array, or queue a set-piece trigger (consumed by later-phase systems).
    *
@@ -714,7 +780,10 @@ export class World {
    */
   _realizeSpawn(ev) {
     if (ev.kind === "enemy") {
-      this.enemies.push(createEnemy(ev.type, ev.x, { config: this.config }));
+      const def = this.config.enemies[ev.type];
+      const sampleDistance = this.distance + this.config.VIRTUAL_HEIGHT;
+      const x = this._deoverlapEnemyX(ev.x, def.width, def.height, sampleDistance);
+      this.enemies.push(createEnemy(ev.type, x, { config: this.config }));
     } else if (ev.kind === "civilian") {
       // Civilian takes (x, targetX); start its drift target at its spawn x.
       this.civilians.push(new Civilian(ev.x, ev.x, { config: this.config }));
@@ -732,15 +801,29 @@ export class World {
           }),
         );
       }
-      // AIDEV-NOTE: spec §6 "intensifying enemy waves" — the milestone spawns a
-      // tight burst of chasers ON TOP of the director's steady traffic. Lanes are
-      // drawn from the world RNG via the director's lane picker so the wave stays
-      // deterministic/replay-stable.
+      // AIDEV-NOTE: spec §4.3 — the wave spawns its chasers across DISTINCT lateral
+      // slots so they never start stacked. We always draw `wavePack` jitters (one
+      // rng.range per slot — fixed draw count, replay-stable) but only realize the
+      // first `count` chasers, where count is clamped to the concurrent-cap
+      // headroom (§4.2). Road is sampled at the spawn row (distance + VIRTUAL_HEIGHT)
+      // to match decideSpawn.
       if (ev.name === "enemyWave") {
+        const wavePack = this.config.enemies.wavePack ?? 3;
         const half = this.config.enemies.switchblade.width / 2;
-        const count = this.config.enemies.wavePack ?? 3;
-        for (let k = 0; k < count; k++) {
-          const x = this.director.pickLane(this.road, this.distance, half, this.rng);
+        const headroom = Math.max(0, this.director.spawnCap(this.distance) - this.enemies.length);
+        const count = Math.min(wavePack, headroom);
+        const s = this.road.sampleAt(this.distance + this.config.VIRTUAL_HEIGHT);
+        const spread = (s.width / 2) * this.config.director.laneSpread;
+        const lo = Math.max(s.leftEdge + half, s.centerX - spread);
+        const hi = Math.min(s.rightEdge - half, s.centerX + spread);
+        const span = Math.max(0, hi - lo);
+        const slotW = span / wavePack;
+        for (let k = 0; k < wavePack; k++) {
+          // ONE rng draw per slot, ALWAYS (keeps the seeded draw count fixed).
+          const jitter = this.rng.range(-slotW * 0.25, slotW * 0.25);
+          if (k >= count) continue; // capped: drew the jitter, don't spawn
+          const slotCenter = lo + slotW * (k + 0.5);
+          const x = Math.max(lo, Math.min(hi, slotCenter + jitter));
           this.enemies.push(createEnemy("switchblade", x, { config: this.config }));
         }
       }

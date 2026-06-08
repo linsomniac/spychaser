@@ -213,6 +213,13 @@ export const config = Object.freeze({
     spawnY: -70, // spawn just above the top edge, virtual px
     wavePack: 3, // chasers spawned by an "enemyWave" set-piece (spec §6)
 
+    // AIDEV-NOTE: soft separation (spec §4.3). A pure-geometry per-tick pass
+    // (entities/enemies.js separateEnemies) nudges enemies apart when their
+    // bodies overlap, so they never sit directly stacked — flanking side-by-side
+    // is still allowed. `push` is the px/s separation speed (split between the
+    // pair); margins add a little slack to the overlap test. No RNG.
+    separation: Object.freeze({ push: 80, marginX: 6, marginY: 8 }),
+
     // Switchblade: pulls alongside the player and slashes its tires.
     switchblade: Object.freeze({
       width: 36,
