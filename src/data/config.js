@@ -333,6 +333,7 @@ export const config = Object.freeze({
     // _heliCooldown), so they never feel relentless / stacked.
     trackDuration: 16, // seconds of TRACKING before the heli gives up and leaves
     cooldown: 40, // enforced quiet break (seconds) after a heli is retired
+    ricochetInterval: 0.12, // min seconds between heli bullet-ricochet cues (spec §4.6)
   }),
 
   // --- Bombs dropped by the helicopter (Phase 7) ---

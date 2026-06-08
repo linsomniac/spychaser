@@ -24,6 +24,7 @@ function makeSpySfx() {
     weaponLoad: rec("weaponLoad"),
     civilianWarning: rec("civilianWarning"),
     lowCarsAlarm: rec("lowCarsAlarm"),
+    ricochet: rec("ricochet"),
     setEngineSpeed: rec("setEngineSpeed"),
     startEngine: rec("startEngine"),
     stopEngine: rec("stopEngine"),
@@ -107,6 +108,14 @@ test("bridge: dispatches queued world audio events to the matching SFX", () => {
   assert.ok(names.includes("civilianWarning"));
   assert.ok(names.includes("lowCarsAlarm"));
   assert.ok(names.includes("weaponLoad"));
+});
+
+test("the bridge maps a 'ricochet' event to sfx.ricochet while playing", () => {
+  const { bridge, sfx } = makeBridge();
+  const world = makeWorld();
+  world.pushAudio("ricochet");
+  bridge.update(world, "playing");
+  assert.ok(sfx.calls.some(([name]) => name === "ricochet"), "ricochet SFX fired");
 });
 
 test("bridge: starts the engine hum + music when entering PLAYING", () => {

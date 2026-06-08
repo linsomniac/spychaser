@@ -40,6 +40,7 @@ import {
   collidePairs,
   resolveMissilesVsHelicopter,
   resolveBombBlast,
+  aabbOverlap,
 } from "../systems/collision.js";
 import { Director } from "../systems/director.js";
 import { Weather } from "../systems/weather.js";
@@ -171,6 +172,13 @@ export class World {
      * @type {number}
      */
     this._heliCooldown = 0;
+
+    /**
+     * Throttle (seconds) between helicopter bullet-ricochet cues so a held
+     * trigger under the immune heli doesn't emit a spark/cue every frame (§4.6).
+     * @type {number}
+     */
+    this._heliRicochetCd = 0;
 
     /**
      * Whether the run's FIRST special has been delivered yet (spec §4.5). The
@@ -329,6 +337,9 @@ export class World {
     }
     if (this._heliCooldown > 0) {
       this._heliCooldown = Math.max(0, this._heliCooldown - dt);
+    }
+    if (this._heliRicochetCd > 0) {
+      this._heliRicochetCd = Math.max(0, this._heliRicochetCd - dt);
     }
 
     // --- Weather (Phase 9): advance any active fog/ice episode (timer-only). ---
@@ -644,6 +655,11 @@ export class World {
           // bonus threshold can bank spare cars (Phase 10). scoreValue 0 (Enforcer)
           // is a no-op there.
           this.scoring.addKill(enemy.def.scoreValue);
+        } else if (enemy.bulletproof && !isMissile) {
+          // Plain bullet bounced off armor (Enforcer): ricochet cue (spec §4.6).
+          // The bullet is still consumed (as before).
+          this.particles.ricochetSpark(bullet.x, bullet.y, this.rng);
+          this._emitAudio("ricochet");
         } else {
           this.particles.hitSpark(bullet.x, bullet.y, this.rng);
         }
@@ -730,6 +746,22 @@ export class World {
           this.scoring.addKill(this.config.helicopter.scoreValue);
         } else {
           this.particles.hitSpark(hit.projectile.x, hit.projectile.y, this.rng);
+        }
+      }
+      // AIDEV-NOTE: spec §4.6 — plain bullets are immune-pass-through on the heli
+      // (collision.js stays pure on that), but give the player feedback: a
+      // throttled ricochet spark + cue when a non-missile bullet overlaps the
+      // heli. The bullet is NOT consumed and does NO damage (preserves
+      // test/heli-collision.test.js).
+      if (this._heliRicochetCd <= 0 && !this.helicopter.dead) {
+        for (const p of this.projectiles.toArray()) {
+          if (p.active === false) continue;
+          if (p.category === "playerMissile" || p.kind === "missile") continue;
+          if (!aabbOverlap(p.bounds, this.helicopter.bounds)) continue;
+          this.particles.ricochetSpark(p.x, p.y, this.rng);
+          this._emitAudio("ricochet");
+          this._heliRicochetCd = this.config.helicopter.ricochetInterval;
+          break; // one cue per throttle window
         }
       }
     }
@@ -956,6 +988,7 @@ export class World {
     this.hazards = [];
     this._specialCooldown = 0;
     this._heliCooldown = 0;
+    this._heliRicochetCd = 0;
     this._firstSpecialDelivered = false;
     this.player.special = null;
     this._wakeTimer = 0;

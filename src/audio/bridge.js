@@ -19,6 +19,7 @@ const EVENT_TO_SFX = Object.freeze({
   civilianWarning: "civilianWarning",
   lowCars: "lowCarsAlarm",
   weaponLoad: "weaponLoad",
+  ricochet: "ricochet",
 });
 
 export class AudioBridge {

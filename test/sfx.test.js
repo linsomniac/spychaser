@@ -60,6 +60,7 @@ test("Sfx: constructs headlessly and exposes the documented triggers", () => {
     "weaponLoad",
     "civilianWarning",
     "lowCarsAlarm",
+    "ricochet",
     "setEngineSpeed",
     "startEngine",
     "stopEngine",
@@ -78,6 +79,7 @@ test("Sfx: all triggers are quiet no-ops when audio is not live", () => {
     sfx.weaponLoad();
     sfx.civilianWarning();
     sfx.lowCarsAlarm();
+    sfx.ricochet();
     sfx.setEngineSpeed(200, 420);
     sfx.startEngine();
     sfx.stopEngine();

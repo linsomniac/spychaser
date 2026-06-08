@@ -194,6 +194,32 @@ export class ParticleSystem {
   }
 
   /**
+   * Ricochet spark (spec §4.6): a small, short-lived cool-white/grey burst shown
+   * when a plain bullet bounces off armor (Enforcer) or the immune helicopter.
+   * Smaller and cooler than hitSpark so it reads as "no damage". Deterministic.
+   * @param {number} x impact center x.
+   * @param {number} y impact center y.
+   * @param {{range:(a:number,b:number)=>number, int:(a:number,b:number)=>number, next:()=>number}} rng
+   */
+  ricochetSpark(x, y, rng) {
+    const count = rng.int(3, 5);
+    for (let i = 0; i < count; i++) {
+      const ang = rng.range(0, Math.PI * 2);
+      const spd = rng.range(40, 120);
+      this.spawn({
+        x: x + rng.range(-2, 2),
+        y: y + rng.range(-2, 2),
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd,
+        ttl: rng.range(0.1, 0.22),
+        size: rng.range(1, 2.5),
+        color: rng.next() < 0.5 ? palette.hudText : palette.hudDim,
+        drag: 6,
+      });
+    }
+  }
+
+  /**
    * Explosion burst (Phase 4): a larger, longer-lived omnidirectional spray of
    * fire + smoke shards for a destroyed enemy. Like hitSpark but bigger; pulls
    * from the same pooled particles so it stays GC-free and deterministic.

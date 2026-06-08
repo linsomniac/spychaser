@@ -72,6 +72,10 @@ export class Sfx {
     this._lastAlarmAt = -Infinity;
     this._alarmMinInterval = 0.8;
 
+    // Ricochet ping is rate-limited so a held trigger on armor doesn't spam.
+    this._lastRicochetAt = -Infinity;
+    this._ricochetMinInterval = 0.08;
+
     /** clock source (audio-clock seconds); injectable for tests. */
     this._now = () => this.audio.now();
   }
@@ -277,6 +281,15 @@ export class Sfx {
     if (!this._live) return;
     this._blip({ type: "square", freq: 880, dur: 0.1, gain: 0.14 });
     this._blip({ type: "square", freq: 880, dur: 0.1, gain: 0.14, when: t + 0.16 });
+  }
+
+  /** Ricochet: a short, bright metallic ping off armor. Rate-limited. */
+  ricochet() {
+    const t = this._now();
+    if (t - this._lastRicochetAt < this._ricochetMinInterval) return;
+    this._lastRicochetAt = t;
+    if (!this._live) return;
+    this._blip({ type: "square", freq: 1200, endFreq: 700, dur: 0.05, gain: 0.06 });
   }
 
   // --- Helicopter rotor -------------------------------------------------------
