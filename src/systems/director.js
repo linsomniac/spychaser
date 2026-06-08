@@ -101,6 +101,19 @@ export class Director {
   }
 
   /**
+   * Max concurrent ground enemies allowed at a distance — round(lerp(start, end,
+   * difficulty)). Civilians are NOT counted (they are non-lethal). The world
+   * passes the live enemy count into update(); when it meets/exceeds this, the
+   * cadence spawn is skipped entirely (spec §4.2).
+   * @param {number} distance
+   * @returns {number}
+   */
+  spawnCap(distance) {
+    const c = this.config.director.maxConcurrentEnemies;
+    return Math.round(lerp(c.start, c.end, this.difficulty(distance)));
+  }
+
+  /**
    * Seed each set-piece's first trigger distance from the RNG, in a stable key
    * order, so the schedule is fully determined by the seed.
    * @param {import("../engine/rng.js").Rng} rng
@@ -176,7 +189,15 @@ export class Director {
       // Reset to the current cadence (SET, not subtract) so a big dt can't bank
       // a burst of spawns in one tick.
       this.spawnTimer = this.currentInterval(distance);
-      events.push(this.decideSpawn(ctx));
+      // AIDEV-NOTE: concurrent-cap gate (spec §4.2). At/over the cap we skip the
+      // ENTIRE spawn decision — crucially BEFORE decideSpawn draws any RNG — so a
+      // capped tick consumes nothing from the seeded stream. liveEnemyCount is the
+      // live ground-enemy count the world feeds in (defaults to 0 for pure
+      // director tests, which therefore never cap).
+      const liveEnemyCount = ctx.liveEnemyCount ?? 0;
+      if (liveEnemyCount < this.spawnCap(distance)) {
+        events.push(this.decideSpawn(ctx));
+      }
     }
 
     return events;

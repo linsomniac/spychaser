@@ -344,17 +344,18 @@ export const config = Object.freeze({
     // Cadence: seconds between spawn DECISIONS. Lerps from maxInterval (distance
     // 0) toward minInterval (at/after rampDistance) — difficulty escalation.
     maxInterval: 2.4, // slowest cadence, at the start of a run
-    minInterval: 0.65, // fastest cadence, deep into a run
-    // AIDEV-NOTE: Phase 13 retune — lowered 60000 -> 30000 so the cadence
-    // escalation (and the helicopter milestone at firstAt 20000) is actually
-    // reached within a normal run; at 60000 difficulty only peaked after ~88 s of
-    // full-throttle play, past the 60 s bonus window.
-    rampDistance: 30000, // virtual px over which cadence ramps max -> min
-    warmupDistance: 700, // no enemies until the player has driven this far
+    minInterval: 1.0, // fastest cadence, deep into a run
+    // AIDEV-NOTE: ramp tuned to 34000 (2026-06 gameplay-fixes pass) so the
+    // cadence escalation and the helicopter milestone (firstAt 20000) are reached
+    // within a normal run — full difficulty lands ~50 s at full throttle, just
+    // inside the 60 s bonus window. The concurrent-enemy cap (maxConcurrentEnemies)
+    // is the primary density lever; this ramp shapes cadence/civilian mix.
+    rampDistance: 34000, // virtual px over which cadence ramps max -> min
+    warmupDistance: 1600, // no enemies until the player has driven this far
 
     // Per spawn decision: probability the vehicle is a civilian (vs an enemy).
     // Civilian share shrinks with distance (more enemies later in the run).
-    civilianChanceStart: 0.45,
+    civilianChanceStart: 0.55,
     civilianChanceEnd: 0.22,
 
     // Tougher enemy types unlock by distance. `count` indexes the director's
@@ -362,10 +363,17 @@ export const config = Object.freeze({
     // see systems/director.js. Each stage gives how many leading types may spawn.
     enemyUnlock: [
       { distance: 0, count: 1 }, // Switchblade only
-      { distance: 5000, count: 2 }, // + Road Lord
-      { distance: 14000, count: 3 }, // + Barrel Dumper
-      { distance: 26000, count: 4 }, // + Enforcer (hardest)
+      { distance: 6000, count: 2 }, // + Road Lord
+      { distance: 16000, count: 3 }, // + Barrel Dumper
+      { distance: 30000, count: 4 }, // + Enforcer (hardest)
     ],
+
+    // AIDEV-NOTE: Concurrent-enemy cap (spec §4.2) — the PRIMARY density lever.
+    // The live ENEMY count (civilians excluded) may not exceed
+    // round(lerp(start, end, difficulty)). When at/over the cap the director
+    // skips the whole spawn decision and draws NO RNG (see systems/director.js),
+    // so the seeded stream stays stable. Tune start/end here only.
+    maxConcurrentEnemies: Object.freeze({ start: 3, end: 6 }),
 
     // Lateral spawn spread as a fraction of the road half-width around center.
     laneSpread: 0.62,
@@ -379,7 +387,7 @@ export const config = Object.freeze({
     // road.water* tunables above), so there is no "water" milestone to realize.
     setpieces: Object.freeze({
       weaponsVan: Object.freeze({ firstAt: 3000, spacing: 9000, jitter: 1200 }),
-      enemyWave: Object.freeze({ firstAt: 6000, spacing: 11000, jitter: 1500 }),
+      enemyWave: Object.freeze({ firstAt: 6000, spacing: 14000, jitter: 1500 }),
       weather: Object.freeze({ firstAt: 9000, spacing: 18000, jitter: 2000 }),
       helicopter: Object.freeze({ firstAt: 20000, spacing: 22000, jitter: 2500 }),
     }),

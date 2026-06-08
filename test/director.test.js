@@ -92,9 +92,9 @@ test("director: no enemies spawn before the warmup distance", () => {
 
 test("director: tougher enemy types are gated by distance", () => {
   const { enemies } = runDirector(99, { distance: 60000 });
-  // Enforcer is the last to unlock (distance 26000). None should appear before.
+  // Enforcer is the last to unlock (distance 30000). None should appear before.
   const earlyEnforcer = enemies.filter(
-    (s) => s.type === "enforcer" && s.distance < 26000,
+    (s) => s.type === "enforcer" && s.distance < 30000,
   );
   assert.equal(earlyEnforcer.length, 0, "Enforcer appeared before its unlock");
   // The only type available very early (< 5000) is the Switchblade.

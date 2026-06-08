@@ -377,6 +377,7 @@ export class World {
       speed: this.speed,
       road: this.road,
       rng: this.rng,
+      liveEnemyCount: this.enemies.length, // ground enemies only; cap lever (§4.2)
     });
     for (const ev of spawnEvents) this._realizeSpawn(ev);
 
