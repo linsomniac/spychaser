@@ -28,9 +28,12 @@ export const palette = Object.freeze({
   playerExhaust: "#ff8a3d", // boost flame
 
   // Enemies.
-  enemy: "#ff4d6d", // standard enemy car (vivid pink-red)
-  enemyHeavy: "#9b5de5", // armored / heavy variant (purple)
+  enemy: "#ff4d6d", // Switchblade (vivid pink-red)
+  enemyHeavy: "#9b5de5", // Enforcer (armored purple)
+  enemyArmed: "#ff8c1a", // Road Lord (hot orange — armed car)
+  enemyTruck: "#5a6472", // Barrel Dumper (steel truck)
   enemyAccent: "#2a1620", // enemy window/shadow detail
+  heliBody: "#4a5260", // Mad Bomber helicopter (gunmetal)
 
   // Civilians (neutral traffic — must not be destroyed).
   civilian: "#9aa3b2", // grey civilian car body

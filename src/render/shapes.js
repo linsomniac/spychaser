@@ -46,6 +46,8 @@ export function roundedRectPath(ctx, cx, cy, w, h, r) {
  * @property {string} body      main body fill
  * @property {string} [accent]  windshield / canopy fill (defaults to a tint)
  * @property {string} [stripe]  optional center racing stripe
+ * @property {string} [outline]      optional stroke color around the body
+ * @property {number} [outlineWidth] outline stroke width (default 2)
  * @property {string} [exhaust] optional rear flame color (drawn when boosting)
  * @property {number} [radius]  corner radius override
  */
@@ -99,6 +101,15 @@ export function drawVehicle(ctx, cx, cy, w, h, style, opts = {}) {
   ctx.fillStyle = style.body;
   roundedRectPath(ctx, 0, 0, w, h, radius);
   ctx.fill();
+
+  // Optional armor outline (e.g. the bulletproof Enforcer). Stroked on the body
+  // silhouette so it reads as plating regardless of body color.
+  if (style.outline) {
+    ctx.strokeStyle = style.outline;
+    ctx.lineWidth = style.outlineWidth ?? 2;
+    roundedRectPath(ctx, 0, 0, w, h, radius);
+    ctx.stroke();
+  }
 
   // Optional center stripe running front-to-back.
   if (style.stripe) {

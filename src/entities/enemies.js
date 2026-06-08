@@ -31,11 +31,16 @@ import { drawVehicle } from "../render/shapes.js";
 /** The four Phase-4 enemy type keys (also keys into config.enemies). */
 export const ENEMY_TYPES = ["switchblade", "enforcer", "roadLord", "barrelDumper"];
 
-const ENEMY_COLORS = {
-  switchblade: palette.enemy,
-  enforcer: palette.enemyHeavy,
-  roadLord: palette.enemy,
-  barrelDumper: palette.enemyHeavy,
+/**
+ * Per-type body colors (spec §4.1). All four are DISTINCT so the cast is
+ * readable; the bulletproof Enforcer additionally gets a white armor outline +
+ * chevron in draw() (driven off `bulletproof`, not the type string).
+ */
+export const ENEMY_COLORS = {
+  switchblade: palette.enemy, // pink-red
+  enforcer: palette.enemyHeavy, // purple (+ armor outline)
+  roadLord: palette.enemyArmed, // orange
+  barrelDumper: palette.enemyTruck, // steel
 };
 
 /**
@@ -187,19 +192,68 @@ export class Enemy {
   }
 
   /**
-   * Draw the enemy as an oncoming vehicle (facing down toward the player).
+   * Draw the enemy as an oncoming vehicle (facing down toward the player), with
+   * a per-type silhouette + glyph so each of the four types is distinct (§4.1).
    * @param {CanvasRenderingContext2D} ctx
    */
   draw(ctx) {
-    drawVehicle(
-      ctx,
-      this.x,
-      this.y,
-      this.width,
-      this.height,
-      { body: ENEMY_COLORS[this.type] ?? palette.enemy, accent: palette.enemyAccent },
-      { facing: -1, shadow: true },
-    );
+    const body = ENEMY_COLORS[this.type] ?? palette.enemy;
+    const minDim = Math.min(this.width, this.height);
+    /** @type {import("../render/shapes.js").VehicleStyle} */
+    const style = { body, accent: palette.enemyAccent };
+    if (this.type === "switchblade") style.radius = minDim * 0.18; // sleek
+    else if (this.type === "barrelDumper") style.radius = minDim * 0.12; // boxy truck
+    // Armor cue is driven off `bulletproof` so any future bulletproof type inherits it.
+    if (this.bulletproof) {
+      style.outline = palette.hudText;
+      style.outlineWidth = 2.5;
+      style.radius = minDim * 0.14; // boxier heavy
+    }
+    drawVehicle(ctx, this.x, this.y, this.width, this.height, style, {
+      facing: -1,
+      shadow: true,
+    });
+    this._drawGlyph(ctx);
+  }
+
+  /**
+   * Draw the type-specific marking on top of the body (screen space, centered on
+   * the vehicle). Kept here so shapes.js stays free of game knowledge.
+   * @param {CanvasRenderingContext2D} ctx
+   * @private
+   */
+  _drawGlyph(ctx) {
+    ctx.save();
+    if (this.bulletproof) {
+      // White chevron pointing toward the player — "armored, ram me".
+      ctx.strokeStyle = palette.hudText;
+      ctx.lineWidth = 2.5;
+      const gw = this.width * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(this.x - gw / 2, this.y - this.height * 0.08);
+      ctx.lineTo(this.x, this.y + this.height * 0.06);
+      ctx.lineTo(this.x + gw / 2, this.y - this.height * 0.08);
+      ctx.stroke();
+    } else if (this.type === "roadLord") {
+      // Twin gun-port marks near the front (front of oncoming traffic = +y).
+      ctx.fillStyle = palette.enemyAccent;
+      const dx = this.width * 0.22;
+      const gw = Math.max(3, this.width * 0.12);
+      const gh = Math.max(4, this.height * 0.1);
+      const gy = this.y + this.height * 0.28;
+      ctx.fillRect(this.x - dx - gw / 2, gy - gh / 2, gw, gh);
+      ctx.fillRect(this.x + dx - gw / 2, gy - gh / 2, gw, gh);
+    } else if (this.type === "barrelDumper") {
+      // Cargo-barrel mark on the truck bed.
+      ctx.fillStyle = palette.barrel;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y - this.height * 0.12, Math.max(4, this.width * 0.16), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = palette.barrelRim;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 
@@ -430,7 +484,7 @@ export class Helicopter {
     ctx.ellipse(x, y, w * 0.62, h * 0.18, 0, 0, Math.PI * 2);
     ctx.stroke();
     // Body.
-    ctx.fillStyle = palette.enemyHeavy;
+    ctx.fillStyle = palette.heliBody;
     ctx.beginPath();
     ctx.ellipse(x, y, w * 0.28, h * 0.42, 0, 0, Math.PI * 2);
     ctx.fill();
