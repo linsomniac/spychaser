@@ -66,27 +66,23 @@ const REPLAY_TICKS = 1800;
 const GOLDEN = Object.freeze({
   ticks: 1800,
   state: "playing", // survives the full window (does not reach game over)
-  // AIDEV-NOTE: re-recorded for the Phase 13 balance/cleanup pass:
-  //   * director.rampDistance was lowered 60000 -> 30000, so difficulty and the
-  //     spawn cadence escalate roughly twice as fast — the gentle stay-alive
-  //     script now meets denser traffic, shifting score/sector/position and the
-  //     whole RNG stream; and
-  //   * the vestigial "water" director set-piece was removed (water stretches are
-  //     emitted by the road sampler, not the director), so it no longer appears
-  //     in the schedule and its removed RNG draws shift everything downstream.
-  // The set-piece schedule (minus water) and survival (state "playing") are intact.
-  score: 2201,
-  cars: 1,
+  // AIDEV-NOTE: re-recorded for the 2026-06 gameplay-fixes pass (concurrent cap,
+  // gentler ramp, soft separation, heli wait-out/cooldown, guaranteed first
+  // missiles, ricochet feedback). Every one of those shifts the seeded stream;
+  // the run still survives the window. Re-record from _record_replay.mjs if an
+  // intentional change shifts these again.
+  score: 2211,
+  cars: 3,
   sector: 5,
-  distance: 20027.17777777778,
-  playerX: 270,
-  playerY: 570.0938759285715,
-  playerSpeed: 34.666666666666664,
+  distance: 20233.866666666607,
+  playerX: 210.7377571969534,
+  playerY: 396.00000000000057,
+  playerSpeed: 420,
   playerSurface: "road",
-  playerDamage: 0,
-  setpieceNames: ["weaponsVan", "enemyWave", "weather", "weaponsVan", "enemyWave"],
+  playerDamage: 32,
+  setpieceNames: ["weaponsVan", "enemyWave", "weather", "weaponsVan", "enemyWave", "helicopter"],
   // The PRNG value drawn immediately AFTER the run — pins the whole stream.
-  rngCursor: 0.06791844707913697,
+  rngCursor: 0.41797392978332937,
 });
 
 /** Tight float tolerance: robust to last-ULP FP noise, catches real drift. */
