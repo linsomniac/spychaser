@@ -65,6 +65,17 @@ test("Helicopter tracks the player's x while TRACKING without overshoot", () => 
   assert.ok(h.x <= 400, "did not overshoot the player's x");
 });
 
+test("Helicopter waits out: TRACKING -> LEAVING after trackDuration, still alive", () => {
+  const h = new Helicopter(270, H.hoverY);
+  h.phase = HELI_PHASE.TRACKING;
+  const world = worldWith({ x: 270, y: 600 });
+  const steps = Math.ceil(H.trackDuration / (1 / 60)) + 2;
+  for (let i = 0; i < steps; i++) h.update(1 / 60, world);
+  assert.equal(h.phase, HELI_PHASE.LEAVING, "left on its own after trackDuration");
+  assert.equal(h.dead, false, "a waited-out heli is NOT destroyed (scores zero)");
+  assert.equal(h.active, true);
+});
+
 test("Helicopter does not jitter inside the track deadzone", () => {
   const h = new Helicopter(200, H.hoverY);
   h.phase = HELI_PHASE.TRACKING;

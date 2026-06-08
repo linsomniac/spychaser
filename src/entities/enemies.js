@@ -400,6 +400,9 @@ export class Helicopter {
     this.phase = HELI_PHASE.ENTERING;
     // Seconds accumulated toward the next bomb drop (only counts while TRACKING).
     this.bombTimer = 0;
+    // Seconds accumulated in TRACKING; when it reaches def.trackDuration the heli
+    // gives up and leaves on its own (alive — see update()).
+    this.trackTimer = 0;
   }
 
   /** Top-left AABB for collision (center-based position). */
@@ -432,6 +435,14 @@ export class Helicopter {
         return [];
       }
       case HELI_PHASE.TRACKING: {
+        // Wait-out (spec §4.4): after trackDuration the heli leaves on its own,
+        // ALIVE — `dead` stays false so the world awards no points (zero-score
+        // wait-out). A missile kill still routes through missileHit().
+        this.trackTimer += dt;
+        if (this.trackTimer >= def.trackDuration) {
+          this.phase = HELI_PHASE.LEAVING;
+          return [];
+        }
         // Lateral chase with a deadzone to avoid jitter when aligned.
         const dx = world.player.x - this.x;
         if (Math.abs(dx) > def.trackDeadzone) {

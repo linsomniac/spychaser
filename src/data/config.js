@@ -323,8 +323,16 @@ export const config = Object.freeze({
     trackSpeed: 120, // px/s lateral chase of the player's x while TRACKING
     trackDeadzone: 6, // px; don't jitter when this close to the player's x
     bombInterval: 1.4, // seconds between bomb drops while TRACKING
-    leaveSpeed: 220, // px/s upward once defeated (LEAVING)
-    scoreValue: 1000, // points for destroying it
+    leaveSpeed: 300, // px/s upward once defeated OR waited out (LEAVING) — was 220
+    scoreValue: 1000, // points for destroying it (missile kill only)
+    // AIDEV-NOTE: lifecycle (spec §4.4). A heli that is neither destroyed nor
+    // missiled away still LEAVES on its own after trackDuration seconds of
+    // tracking (the player can "wait it out"); it leaves ALIVE so it scores zero.
+    // After ANY heli is retired the world enforces a `cooldown`-second break
+    // before the next "helicopter" milestone may spawn one (core/world.js
+    // _heliCooldown), so they never feel relentless / stacked.
+    trackDuration: 16, // seconds of TRACKING before the heli gives up and leaves
+    cooldown: 40, // enforced quiet break (seconds) after a heli is retired
   }),
 
   // --- Bombs dropped by the helicopter (Phase 7) ---

@@ -164,6 +164,15 @@ export class World {
     this._specialCooldown = 0;
 
     /**
+     * Enforced quiet break (seconds) after a helicopter is retired (spec §4.4).
+     * Counts down in update(); set to config.helicopter.cooldown when a heli is
+     * retired. The "helicopter" milestone is a no-op while this is positive, so
+     * the player always gets a break between helis.
+     * @type {number}
+     */
+    this._heliCooldown = 0;
+
+    /**
      * Countdown until the next boat-wake splash (Phase 8). Counts down only
      * while in boat mode; reset to the cadence interval on each emission. Kept
      * on the world (not the player) so the splash uses the world RNG and stays
@@ -308,6 +317,9 @@ export class World {
     this.ticks += 1;
     if (this._specialCooldown > 0) {
       this._specialCooldown = Math.max(0, this._specialCooldown - dt);
+    }
+    if (this._heliCooldown > 0) {
+      this._heliCooldown = Math.max(0, this._heliCooldown - dt);
     }
 
     // --- Weather (Phase 9): advance any active fog/ice episode (timer-only). ---
@@ -463,6 +475,8 @@ export class World {
       this.helicopter.isOffscreen(this.height)
     ) {
       this.helicopter = null;
+      // Start the enforced break before the next heli may spawn (spec §4.4).
+      this._heliCooldown = this.config.helicopter.cooldown;
     }
 
     // --- Persist the high score on the tick the run ends (M3). ---
@@ -827,10 +841,12 @@ export class World {
           this.enemies.push(createEnemy("switchblade", x, { config: this.config }));
         }
       }
-      // AIDEV-NOTE: Phase 7 — the "helicopter" milestone spawns the Mad Bomber
-      // above the player. One-shot guard: ignore the trigger if a heli is
-      // already on-screen so a re-fired milestone never stacks two helis.
-      if (ev.name === "helicopter" && !this.helicopter) {
+      // AIDEV-NOTE: spec §4.4 singleton + break invariant. A heli spawns only when
+      // none is live AND the post-retire cooldown has elapsed, so they never stack
+      // and the player always gets a break. INVARIANT: `helicopter` must stay a
+      // single field and _realizeSpawn must stay synchronous; if either changes,
+      // this guard must become a real concurrency check.
+      if (ev.name === "helicopter" && !this.helicopter && this._heliCooldown <= 0) {
         this.helicopter = createEnemy("helicopter", this.player.x, {
           config: this.config,
         });
@@ -926,6 +942,7 @@ export class World {
     this.vans = [];
     this.hazards = [];
     this._specialCooldown = 0;
+    this._heliCooldown = 0;
     this.player.special = null;
     this._wakeTimer = 0;
     // AIDEV-NOTE: reset() restores a fresh run's score/lives/bonus state but KEEPS
