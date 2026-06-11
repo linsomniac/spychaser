@@ -66,25 +66,24 @@ const REPLAY_TICKS = 1800;
 const GOLDEN = Object.freeze({
   ticks: 1800,
   state: "playing", // survives the full window (does not reach game over)
-  // AIDEV-NOTE: re-recorded for the 2026-06 gameplay-fixes pass (concurrent cap,
-  // gentler ramp, soft separation, heli wait-out/cooldown, guaranteed first
-  // missiles, ricochet feedback). Every one of those shifts the seeded stream;
-  // the run still survives the window. To re-record after an intentional change:
-  // run this seed + scriptedInput for REPLAY_TICKS in a tiny headless script
-  // (same body as runReplay) and print snapshot(world) — then paste the fields
-  // here. The re-recorded run MUST still end with state "playing".
-  score: 2211,
+  // AIDEV-NOTE: re-recorded for the 2026-06-10 vehicle-overlap pass (hard
+  // de-penetration over all vehicles + heavy player + cap end 6->5). Positions and
+  // the cap shifted the seeded stream; the run still survives the window. To
+  // re-record after an intentional change: run this seed + scriptedInput for
+  // REPLAY_TICKS in a tiny headless script (same body as runReplay) and print
+  // snapshot(world). The re-recorded run MUST still end state "playing".
+  score: 344,
   cars: 3,
   sector: 5,
-  distance: 20233.866666666607,
-  playerX: 210.7377571969534,
-  playerY: 396.00000000000057,
+  distance: 20032.43333333326,
+  playerX: 198,
+  playerY: 406.48572720224377,
   playerSpeed: 420,
   playerSurface: "road",
-  playerDamage: 32,
-  setpieceNames: ["weaponsVan", "enemyWave", "weather", "weaponsVan", "enemyWave", "helicopter"],
+  playerDamage: 37.89999999999999,
+  setpieceNames: ["weaponsVan", "enemyWave", "weather", "weaponsVan"],
   // The PRNG value drawn immediately AFTER the run — pins the whole stream.
-  rngCursor: 0.41797392978332937,
+  rngCursor: 0.3814590200781822,
 });
 
 /** Tight float tolerance: robust to last-ULP FP noise, catches real drift. */
