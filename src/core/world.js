@@ -32,7 +32,6 @@ import {
   createEnemy,
   Bomb,
   HELI_PHASE,
-  separateEnemies,
   ENEMY_TYPES,
 } from "../entities/enemies.js";
 import { Civilian } from "../entities/civilian.js";
@@ -43,6 +42,7 @@ import {
   aabbOverlap,
 } from "../systems/collision.js";
 import { Director } from "../systems/director.js";
+import { resolveOverlaps } from "../systems/separation.js";
 import { Weather } from "../systems/weather.js";
 import { Scoring } from "../systems/scoring.js";
 
@@ -425,13 +425,6 @@ export class World {
       for (const ev of events) this._realizeEnemyEvent(ev);
     }
 
-    // Soft separation (spec §4.3): nudge overlapping enemies apart (pure geometry,
-    // no RNG), clamped to the road at each enemy's row.
-    separateEnemies(this.enemies, dt, {
-      config: this.config,
-      clampX: (x, e) => this._clampEnemyToRoad(x, e),
-    });
-
     // --- Civilians. ---
     for (const c of this.civilians) c.update(dt, this);
 
@@ -502,6 +495,17 @@ export class World {
       // Start the enforced break before the next heli may spawn (spec §4.4).
       this._heliCooldown = this.config.helicopter.cooldown;
     }
+
+    // --- Vehicle overlap resolution (spec 2026-06-10). One pure, RNG-free pass
+    // over ALL vehicles AFTER the damage/ram pass + culling, so a ram registers
+    // before cars are shoved apart. The player + vans are immovable (heavy); they
+    // push movable enemies/civilians out and are never pushed themselves. ---
+    resolveOverlaps([this.player, ...this.vans, ...this.enemies, ...this.civilians], {
+      marginX: this.config.enemies.separation.marginX,
+      marginY: this.config.enemies.separation.marginY,
+      immovable: (b) => !!b.immovable,
+      clampX: (x, b) => this._clampBodyToRoad(x, b),
+    });
 
     // --- Persist the high score on the tick the run ends (M3). ---
     // AIDEV-NOTE: _endRun() flips state to "gameover" mid-tick (from _handleCrash,
@@ -775,17 +779,17 @@ export class World {
   }
 
   /**
-   * Clamp an enemy's x to the road body at its current screen row (used by the
-   * separation pass so a nudge never pushes a car off the asphalt). Pure.
+   * Clamp a vehicle body's x to the road body at its current screen row (used by
+   * the overlap-resolution pass so a push never leaves the asphalt). Pure.
    * @param {number} x
-   * @param {{y:number, width:number}} enemy
+   * @param {{y:number, width:number}} body
    * @returns {number}
    * @private
    */
-  _clampEnemyToRoad(x, enemy) {
-    const worldDist = this.distance + (this.height - enemy.y);
+  _clampBodyToRoad(x, body) {
+    const worldDist = this.distance + (this.height - body.y);
     const s = this.road.sampleAt(worldDist);
-    const half = enemy.width / 2;
+    const half = body.width / 2;
     const lo = s.leftEdge + half;
     const hi = s.rightEdge - half;
     if (hi <= lo) return s.centerX;

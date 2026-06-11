@@ -116,6 +116,10 @@ export class Player {
 
     /** lateral center, virtual px. Starts mid-field. */
     this.x = this.config.VIRTUAL_WIDTH / 2;
+    // AIDEV-NOTE: the player is a "heavy" body for overlap resolution (spec
+    // 2026-06-10): it shoves enemies/civilians out of its lane and is never pushed
+    // itself, so steering stays input-exact. systems/separation.js reads this.
+    this.immovable = true;
     /** vertical screen center, virtual px. Starts at the resting position. */
     this.y = this.config.VIRTUAL_HEIGHT * p.restY;
     /** forward speed relative to the road, virtual px/s (drives world scroll). */

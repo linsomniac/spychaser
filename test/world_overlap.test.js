@@ -7,6 +7,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { World } from "../src/core/world.js";
 import { config } from "../src/data/config.js";
+import { createEnemy } from "../src/entities/enemies.js";
+import { createWeaponsVan } from "../src/entities/weaponsVan.js";
+import { Civilian } from "../src/entities/civilian.js";
 
 const DT = config.FIXED_STEP;
 
@@ -42,24 +45,92 @@ test("an enemyWave is clamped to the remaining concurrent-cap headroom", () => {
   assert.ok(w.enemies.length - before <= config.enemies.wavePack);
 });
 
-test("a headless run never leaves enemies overlapping after the separation pass", () => {
+test("a headless run never leaves vehicles hard-overlapping (enemies/civilians/vans)", () => {
   const w = new World({ seed: 42 });
-  let maxStacked = 0;
+  let hardStacks = 0;
   for (let t = 0; t < 1500; t++) {
     w.setInput({ accel: true, fire: true });
     w.update(DT);
-    // Count any pair that is still hard-overlapping (well inside both bodies).
-    for (let i = 0; i < w.enemies.length; i++) {
-      for (let j = i + 1; j < w.enemies.length; j++) {
-        const a = w.enemies[i], b = w.enemies[j];
+    // All movable + van bodies (exclude the player: its van-ramp overlap is intended).
+    const all = [...w.enemies, ...w.civilians, ...w.vans];
+    for (let i = 0; i < all.length; i++) {
+      for (let j = i + 1; j < all.length; j++) {
+        const a = all[i], b = all[j];
         const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
-        if (dx < (a.width + b.width) / 4 && dy < (a.height + b.height) / 4) maxStacked++;
+        // "Hard" overlap = deep penetration (well inside both bodies).
+        if (dx < (a.width + b.width) / 4 && dy < (a.height + b.height) / 4) hardStacks++;
       }
     }
   }
-  // A nudge, not a hard collision: brief transient overlaps are fine, but a
-  // run should not be dominated by hard stacks.
-  assert.ok(maxStacked < 200, `too many hard stacks across the run: ${maxStacked}`);
+  // NOTE: 0 is exact (deterministic run, no RNG). If this ever trips, suspect the
+  // cap (maxConcurrentEnemies.end) vs. road width — single-pass de-penetration
+  // can't fully re-resolve a body clamped against a narrow road edge.
+  assert.equal(hardStacks, 0, `vehicles hard-overlapped ${hardStacks} times across the run`);
+});
+
+test("the player shoves an overlapping enemy aside AND the ram still fires", () => {
+  const w = new World({ seed: 1 });
+  const e = createEnemy("enforcer", w.player.x, { config: w.config });
+  e.y = w.player.y; // overlap the player
+  w.enemies.push(e);
+  const ramHpBefore = e.ramHp;
+  const playerXBefore = w.player.x;
+  w.setInput({}); // no steering
+  w.update(DT);
+  // Ram fired this tick (resolution runs AFTER the damage pass).
+  assert.equal(e.ramHp, ramHpBefore - 1, "ram hit landed before the shove");
+  // Enemy was shoved clear; the player (immovable) did not move.
+  assert.ok(
+    Math.abs(e.x - w.player.x) >= (w.player.width + e.width) / 2,
+    "enemy shoved out of the player's body",
+  );
+  assert.equal(w.player.x, playerXBefore, "heavy player is never pushed");
+});
+
+test("the heavy player shoves a civilian aside without penalty (not destroyed)", () => {
+  const w = new World({ seed: 1 });
+  const civ = new Civilian(w.player.x, w.player.x, { config: w.config });
+  civ.y = w.player.y; // overlap the player
+  w.civilians.push(civ);
+  const scoreBefore = w.score;
+  const hitsBefore = w.civilianHits;
+  w.update(DT);
+  assert.ok(
+    Math.abs(civ.x - w.player.x) >= (w.player.width + civ.width) / 2,
+    "civilian shoved aside",
+  );
+  assert.equal(civ.active, true, "civilian not destroyed by a bump");
+  assert.equal(w.civilianHits, hitsBefore, "no civilian-hit counted for a bump");
+  assert.ok(w.score >= scoreBefore, "no penalty deducted for a bump");
+});
+
+test("an enemy bounces off the immovable weapons van", () => {
+  const w = new World({ seed: 1 });
+  const van = createWeaponsVan(w.player.x, 0, { config: w.config });
+  van.y = w.player.y - (van.height / 2 - van.def.rampHeight / 2); // ramp over the player
+  w.vans.push(van);
+  const e = createEnemy("switchblade", van.x, { config: w.config });
+  e.y = van.y;
+  w.enemies.push(e);
+  const vanXBefore = van.x;
+  w.update(DT);
+  assert.equal(van.x, vanXBefore, "van is immovable");
+  assert.ok(
+    Math.abs(e.x - van.x) >= (e.width + van.width) / 2,
+    "enemy pushed off the van",
+  );
+});
+
+test("the player can still sit in the van ramp (overlap preserved for loading)", () => {
+  const w = new World({ seed: 1 });
+  const van = createWeaponsVan(w.player.x, 0, { config: w.config });
+  van.y = w.player.y - (van.height / 2 - van.def.rampHeight / 2);
+  w.vans.push(van);
+  w.update(DT);
+  const overlap =
+    Math.abs(w.player.x - van.x) < (w.player.width + van.width) / 2 &&
+    Math.abs(w.player.y - van.y) < (w.player.height + van.height) / 2;
+  assert.ok(overlap, "player still overlaps the van after resolution (ramp loadable)");
 });
 
 test("live enemy count never exceeds the distance-based cap", () => {

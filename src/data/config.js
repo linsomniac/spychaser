@@ -213,12 +213,12 @@ export const config = Object.freeze({
     spawnY: -70, // spawn just above the top edge, virtual px
     wavePack: 3, // chasers spawned by an "enemyWave" set-piece (spec §6)
 
-    // AIDEV-NOTE: soft separation (spec §4.3). A pure-geometry per-tick pass
-    // (entities/enemies.js separateEnemies) nudges enemies apart when their
-    // bodies overlap, so they never sit directly stacked — flanking side-by-side
-    // is still allowed. `push` is the px/s separation speed (split between the
-    // pair); margins add a little slack to the overlap test. No RNG.
-    separation: Object.freeze({ push: 80, marginX: 6, marginY: 8 }),
+    // AIDEV-NOTE: overlap-resolution margins (spec 2026-06-10). systems/separation.js
+    // runs a pure, RNG-free HARD lateral de-penetration over all vehicles each tick;
+    // a resolved pair settles to a `marginX` gap, with `marginY` slack on the
+    // vertical band test. (The old soft `push` speed is gone — de-penetration has no
+    // push rate.)
+    separation: Object.freeze({ marginX: 6, marginY: 8 }),
 
     // Switchblade: pulls alongside the player and slashes its tires.
     switchblade: Object.freeze({
@@ -389,7 +389,7 @@ export const config = Object.freeze({
     // round(lerp(start, end, difficulty)). When at/over the cap the director
     // skips the whole spawn decision and draws NO RNG (see systems/director.js),
     // so the seeded stream stays stable. Tune start/end here only.
-    maxConcurrentEnemies: Object.freeze({ start: 3, end: 6 }),
+    maxConcurrentEnemies: Object.freeze({ start: 3, end: 5 }), // end 6->5: hard de-penetration must fit the narrowest road (spec 2026-06-10)
 
     // Lateral spawn spread as a fraction of the road half-width around center.
     laneSpread: 0.62,

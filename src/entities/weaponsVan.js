@@ -39,6 +39,10 @@ export class WeaponsVan {
     this.delivered = false;
     /** true while live; collision/cull use this. */
     this.active = true;
+    // AIDEV-NOTE: the van is immovable for overlap resolution — enemies bounce off
+    // it, but the player can still overlap its rear ramp to load (two immovable
+    // bodies are a no-op in systems/separation.js).
+    this.immovable = true;
   }
 
   /** Top-left AABB for collision (center-based position). */
