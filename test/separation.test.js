@@ -24,6 +24,9 @@ test("two overlapping movable bodies split apart to a marginX gap", () => {
   const gap = Math.abs(a.x - b.x) - (a.width + b.width) / 2;
   assert.ok(Math.abs(gap - MX) < 1e-9, `gap ${gap} != marginX ${MX}`);
   assert.ok(a.x < b.x, "lower index goes left on an exact tie");
+  // Lateral-only: y must never change (guards against a future vertical push).
+  assert.equal(a.y, 100);
+  assert.equal(b.y, 100);
 });
 
 test("an asymmetric movable/movable overlap splits in the correct direction", () => {
